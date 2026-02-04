@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { examSubmissionSchema, createExamSchema } from "@shared/schema";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -254,17 +254,21 @@ export async function registerRoutes(
         ];
       }));
 
-      // Create workbook
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      // Create workbook using exceljs
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet(exam.title.substring(0, 31));
+      
+      // Add header row
+      worksheet.addRow(headers);
+      
+      // Add data rows
+      rows.forEach(row => worksheet.addRow(row));
       
       // Set column widths
-      ws["!cols"] = headers.map((h) => ({ wch: Math.max(h.length, 15) }));
-      
-      XLSX.utils.book_append_sheet(wb, ws, exam.title.substring(0, 31));
+      worksheet.columns = headers.map((h) => ({ width: Math.max(h.length, 15) }));
 
       // Generate buffer
-      const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+      const buffer = await workbook.xlsx.writeBuffer();
 
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename="${exam.title}-results.xlsx"`);
