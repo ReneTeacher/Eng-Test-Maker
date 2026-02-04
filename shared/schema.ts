@@ -6,8 +6,10 @@ import { z } from "zod";
 export const exams = pgTable("exams", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   title: text("title").notNull(),
+  examType: text("exam_type").notNull().default("vocabulary"),
   isActive: boolean("is_active").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  correctText: text("correct_text"),
 });
 
 export const questions = pgTable("questions", {
@@ -17,6 +19,9 @@ export const questions = pgTable("questions", {
   correctWord: text("correct_word").notNull(),
   correctPos: text("correct_pos").notNull(),
   correctMeaning: text("correct_meaning").notNull(),
+  wordScore: integer("word_score").notNull().default(2),
+  posScore: integer("pos_score").notNull().default(1),
+  meaningScore: integer("meaning_score").notNull().default(1),
 });
 
 export const studentSubmissions = pgTable("student_submissions", {
@@ -38,6 +43,23 @@ export const answerDetails = pgTable("answer_details", {
   studentPos: text("student_pos").notNull(),
   studentMeaning: text("student_meaning").notNull(),
   isCorrect: boolean("is_correct").notNull(),
+  wordCorrect: boolean("word_correct").notNull().default(false),
+  posCorrect: boolean("pos_correct").notNull().default(false),
+  meaningCorrect: boolean("meaning_correct").notNull().default(false),
+  earnedScore: integer("earned_score").notNull().default(0),
+});
+
+export const textSubmissions = pgTable("text_submissions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  examId: integer("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
+  studentName: text("student_name").notNull(),
+  studentNumber: integer("student_number").notNull(),
+  originalClass: text("original_class").notNull(),
+  mixedClass: text("mixed_class").notNull(),
+  studentText: text("student_text").notNull(),
+  totalScore: integer("total_score").notNull(),
+  feedback: text("feedback"),
+  submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 
 // Insert schemas
@@ -60,6 +82,10 @@ export type AnswerDetail = typeof answerDetails.$inferSelect;
 // Extended types for API responses
 export type ExamWithQuestions = Exam & { questions: Question[] };
 export type SubmissionWithDetails = StudentSubmission & { answers: AnswerDetail[] };
+
+export const insertTextSubmissionSchema = createInsertSchema(textSubmissions).omit({ id: true, submittedAt: true });
+export type InsertTextSubmission = z.infer<typeof insertTextSubmissionSchema>;
+export type TextSubmission = typeof textSubmissions.$inferSelect;
 
 // Form validation schemas
 export const studentLoginSchema = z.object({
