@@ -18,7 +18,9 @@ import {
   Clock,
   ToggleLeft,
   ToggleRight,
-  Trash2
+  Trash2,
+  Copy,
+  Link as LinkIcon
 } from "lucide-react";
 import type { Exam, StudentSubmission } from "@shared/schema";
 
@@ -95,6 +97,12 @@ export default function AdminDashboard() {
   const handleLogout = () => {
     sessionStorage.removeItem("adminAuth");
     navigate("/admin");
+  };
+
+  const copyExamLink = (examId: number) => {
+    const url = `${window.location.origin}/exam/${examId}`;
+    navigator.clipboard.writeText(url);
+    toast({ title: "Link copied to clipboard" });
   };
 
   const activeExam = exams?.find(e => e.isActive);
@@ -238,6 +246,15 @@ export default function AdminDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => copyExamLink(exam.id)}
+                              title="Copy student link"
+                              data-testid={`button-copy-link-${exam.id}`}
+                            >
+                              <Copy className="w-4 h-4 text-blue-500" />
+                            </Button>
                             <Link href={`/admin/edit-exam/${exam.id}`}>
                               <Button
                                 size="sm"

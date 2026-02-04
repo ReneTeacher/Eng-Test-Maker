@@ -18,6 +18,7 @@ interface VocabAnswer {
 }
 
 export default function StudentExam() {
+  const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [answers, setAnswers] = useState<Record<number, VocabAnswer>>({});
@@ -51,7 +52,7 @@ export default function StudentExam() {
   }, []);
 
   const { data: activeExam, isLoading, error } = useQuery<ExamWithQuestions>({
-    queryKey: ["/api/exams/active"],
+    queryKey: [id ? `/api/exams/${id}` : "/api/exams/active"],
     enabled: !!studentInfo,
   });
 

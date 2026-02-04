@@ -21,6 +21,7 @@ function Router() {
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/create-exam" component={AdminCreateExam} />
       <Route path="/admin/edit-exam/:id" component={AdminCreateExam} />
+      <Route path="/exam/:id" component={StudentExam} />
       <Route component={NotFound} />
     </Switch>
   );
