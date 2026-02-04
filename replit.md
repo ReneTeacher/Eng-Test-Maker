@@ -1,12 +1,14 @@
 # English Dictation App
 
-A web-based vocabulary dictation testing application for school classrooms. Teachers can create vocabulary exams with Word | Part of Speech | Meaning format, and students can take tests on their iPads with anti-cheating measures.
+A web-based dictation testing application for school classrooms supporting two exam types: Vocabulary Dictation and Text Dictation. Teachers can create exams with automatic sentence splitting and AI-powered scoring. Students take tests on their iPads with anti-cheating measures.
 
 ## Overview
 
 This application allows:
-- **Teachers**: Create vocabulary exams (Word | POS | Meaning format), manage active tests, view submissions, and export results to Excel
-- **Students**: Login with their details, take the active exam with 3 input fields per vocabulary, and receive immediate feedback on their score
+- **Teachers**: Create two types of exams:
+  - **Vocabulary Dictation**: Word | POS | Meaning format with weighted scoring
+  - **Text Dictation**: Sentence-by-sentence input with AI evaluation (Poe API / Gemini-3-Flash)
+- **Students**: Login with their details, take the active exam, and receive immediate feedback on their score with per-sentence breakdown
 
 ## Tech Stack
 
@@ -41,21 +43,29 @@ This application allows:
 
 ## Database Schema
 
-- **exams**: id, title, is_active, created_at
-- **questions**: id, exam_id, word_order, correct_word, correct_pos, correct_meaning
+### Vocabulary Dictation
+- **exams**: id, title, exam_type, is_active, correct_text, created_at
+- **questions**: id, exam_id, word_order, correct_word, correct_pos, correct_meaning, word_score, pos_score, meaning_score
 - **student_submissions**: id, exam_id, student_name, student_number, original_class, mixed_class, total_score, submitted_at
 - **answer_details**: id, submission_id, question_id, student_word, student_pos, student_meaning, is_correct
+
+### Text Dictation
+- **text_sentences**: id, exam_id, sentence_order, correct_sentence, max_score (default: 10)
+- **text_submissions**: id, exam_id, student_name, student_number, original_class, mixed_class, student_text, total_score, max_score, feedback, submitted_at
+- **text_answer_details**: id, submission_id, sentence_id, student_sentence, earned_score, feedback
 
 ## API Endpoints
 
 - `POST /api/admin/login` - Admin authentication
 - `GET /api/exams` - List all exams
-- `GET /api/exams/active` - Get active exam with questions
-- `POST /api/exams` - Create new exam (body: { title, vocabularies, isActive })
+- `GET /api/exams/active` - Get active exam with questions (vocab) or sentences (text)
+- `GET /api/exams/:id` - Get exam by ID with questions or sentences
+- `POST /api/exams` - Create new exam (body: { title, vocabularies?, correctText?, isActive, examType })
 - `PATCH /api/exams/:id` - Update exam (toggle active)
 - `DELETE /api/exams/:id` - Delete exam
 - `GET /api/submissions` - List all submissions
-- `POST /api/submissions` - Submit exam answers (body includes answers array with studentWord, studentPos, studentMeaning)
+- `POST /api/submissions` - Submit vocab exam answers
+- `POST /api/text-submissions` - Submit text dictation (supports sentenceAnswers array for per-sentence scoring)
 - `GET /api/export?examId=X` - Export to Excel
 
 ## Running the Application
