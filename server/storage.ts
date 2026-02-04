@@ -1,8 +1,8 @@
 import { 
-  exams, questions, studentSubmissions, answerDetails, textSubmissions,
-  type Exam, type Question, type StudentSubmission, type AnswerDetail, type TextSubmission,
-  type InsertExam, type InsertQuestion, type InsertSubmission, type InsertAnswerDetail,
-  type ExamWithQuestions
+  exams, questions, studentSubmissions, answerDetails, textSubmissions, textSentences, textAnswerDetails,
+  type Exam, type Question, type StudentSubmission, type AnswerDetail, type TextSubmission, type TextSentence, type TextAnswerDetail,
+  type InsertExam, type InsertQuestion, type InsertSubmission, type InsertAnswerDetail, type InsertTextSentence, type InsertTextAnswerDetail,
+  type ExamWithQuestions, type ExamWithSentences
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -43,9 +43,20 @@ export interface IStorage {
     mixedClass: string;
     studentText: string;
     totalScore: number;
+    maxScore?: number;
     feedback?: string;
   }): Promise<TextSubmission>;
   getTextSubmissionsByExamId(examId: number): Promise<TextSubmission[]>;
+
+  // Text Sentences
+  createTextSentences(sentences: InsertTextSentence[]): Promise<TextSentence[]>;
+  getTextSentencesByExamId(examId: number): Promise<TextSentence[]>;
+  deleteTextSentencesByExamId(examId: number): Promise<void>;
+  getActiveTextExam(): Promise<ExamWithSentences | undefined>;
+
+  // Text Answer Details
+  createTextAnswerDetails(details: InsertTextAnswerDetail[]): Promise<TextAnswerDetail[]>;
+  getTextAnswerDetailsBySubmissionId(submissionId: number): Promise<TextAnswerDetail[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -174,6 +185,43 @@ export class DatabaseStorage implements IStorage {
       .from(textSubmissions)
       .where(eq(textSubmissions.examId, examId))
       .orderBy(desc(textSubmissions.submittedAt));
+  }
+
+  // Text Sentences
+  async createTextSentences(sentenceList: InsertTextSentence[]): Promise<TextSentence[]> {
+    if (sentenceList.length === 0) return [];
+    return db.insert(textSentences).values(sentenceList).returning();
+  }
+
+  async getTextSentencesByExamId(examId: number): Promise<TextSentence[]> {
+    return db.select().from(textSentences).where(eq(textSentences.examId, examId)).orderBy(textSentences.sentenceOrder);
+  }
+
+  async deleteTextSentencesByExamId(examId: number): Promise<void> {
+    await db.delete(textSentences).where(eq(textSentences.examId, examId));
+  }
+
+  async getActiveTextExam(): Promise<ExamWithSentences | undefined> {
+    const [exam] = await db.select().from(exams).where(eq(exams.isActive, true));
+    if (!exam || exam.examType !== "text") return undefined;
+    
+    const sentenceList = await db
+      .select()
+      .from(textSentences)
+      .where(eq(textSentences.examId, exam.id))
+      .orderBy(textSentences.sentenceOrder);
+    
+    return { ...exam, sentences: sentenceList };
+  }
+
+  // Text Answer Details
+  async createTextAnswerDetails(details: InsertTextAnswerDetail[]): Promise<TextAnswerDetail[]> {
+    if (details.length === 0) return [];
+    return db.insert(textAnswerDetails).values(details).returning();
+  }
+
+  async getTextAnswerDetailsBySubmissionId(submissionId: number): Promise<TextAnswerDetail[]> {
+    return db.select().from(textAnswerDetails).where(eq(textAnswerDetails.submissionId, submissionId));
   }
 }
 

@@ -58,8 +58,26 @@ export const textSubmissions = pgTable("text_submissions", {
   mixedClass: text("mixed_class").notNull(),
   studentText: text("student_text").notNull(),
   totalScore: integer("total_score").notNull(),
+  maxScore: integer("max_score").notNull().default(100),
   feedback: text("feedback"),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
+});
+
+export const textSentences = pgTable("text_sentences", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  examId: integer("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
+  sentenceOrder: integer("sentence_order").notNull(),
+  correctSentence: text("correct_sentence").notNull(),
+  maxScore: integer("max_score").notNull().default(10),
+});
+
+export const textAnswerDetails = pgTable("text_answer_details", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  submissionId: integer("submission_id").notNull().references(() => textSubmissions.id, { onDelete: "cascade" }),
+  sentenceId: integer("sentence_id").notNull().references(() => textSentences.id, { onDelete: "cascade" }),
+  studentSentence: text("student_sentence").notNull(),
+  earnedScore: integer("earned_score").notNull().default(0),
+  feedback: text("feedback"),
 });
 
 // Insert schemas
@@ -84,8 +102,19 @@ export type ExamWithQuestions = Exam & { questions: Question[] };
 export type SubmissionWithDetails = StudentSubmission & { answers: AnswerDetail[] };
 
 export const insertTextSubmissionSchema = createInsertSchema(textSubmissions).omit({ id: true, submittedAt: true });
+export const insertTextSentenceSchema = createInsertSchema(textSentences).omit({ id: true });
+export const insertTextAnswerDetailSchema = createInsertSchema(textAnswerDetails).omit({ id: true });
+
 export type InsertTextSubmission = z.infer<typeof insertTextSubmissionSchema>;
+export type InsertTextSentence = z.infer<typeof insertTextSentenceSchema>;
+export type InsertTextAnswerDetail = z.infer<typeof insertTextAnswerDetailSchema>;
+
 export type TextSubmission = typeof textSubmissions.$inferSelect;
+export type TextSentence = typeof textSentences.$inferSelect;
+export type TextAnswerDetail = typeof textAnswerDetails.$inferSelect;
+
+export type ExamWithSentences = Exam & { sentences: TextSentence[] };
+export type TextSubmissionWithDetails = TextSubmission & { answers: TextAnswerDetail[] };
 
 // Form validation schemas
 export const studentLoginSchema = z.object({
