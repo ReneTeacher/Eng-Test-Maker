@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText } from "lucide-react";
+import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, X } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { ExamWithQuestions, StudentLogin, TextSentence } from "@shared/schema";
 
@@ -39,6 +39,8 @@ export default function StudentExam() {
   const [textAnswer, setTextAnswer] = useState("");
   const [sentenceAnswers, setSentenceAnswers] = useState<Record<number, string>>({});
   const [studentInfo, setStudentInfo] = useState<StudentLogin | null>(null);
+  const [warningCount, setWarningCount] = useState(0);
+  const [showCheatAlert, setShowCheatAlert] = useState(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
@@ -53,11 +55,28 @@ export default function StudentExam() {
     }
   }, [navigate, id]);
 
+  // Anti-cheating: visibility change detection
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.hidden) {
-        alert("Warning: Leaving the exam screen is recorded.");
-        console.log("[EXAM SECURITY] Tab visibility changed - student may have left the exam screen");
+      if (document.hidden && !isSubmitting) {
+        setWarningCount(prev => {
+          const newCount = prev + 1;
+          if (newCount >= 3) {
+            // Auto submit on 3rd violation
+            const form = document.querySelector("form");
+            if (form) {
+              form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+            }
+            toast({
+              title: "自動提交",
+              description: "由於偵測到多次離開頁面，系統已自動提交您的答案。",
+              variant: "destructive",
+            });
+          } else {
+            setShowCheatAlert(true);
+          }
+          return newCount;
+        });
       }
     };
 
@@ -65,7 +84,7 @@ export default function StudentExam() {
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [isSubmitting, toast]);
 
   const { data: activeExam, isLoading, error } = useQuery<ActiveExam>({
     queryKey: [`/api/exams/${id}`],
@@ -266,6 +285,32 @@ export default function StudentExam() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 p-4 pb-24">
+      {showCheatAlert && warningCount < 3 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <Card className="max-w-md w-full border-destructive shadow-2xl animate-in fade-in zoom-in duration-300">
+            <CardHeader className="bg-destructive text-destructive-foreground">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-6 h-6" />
+                <CardTitle>嚴正警告 (第 {warningCount} 次)</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4">
+              <p className="text-lg font-bold text-destructive">
+                偵測到您離開了考試頁面！
+              </p>
+              <p className="text-muted-foreground">
+                請保持在考試分頁。如果離開頁面超過 <span className="font-bold text-foreground">3 次</span>，系統將會 <span className="font-bold text-destructive">自動提交</span> 您目前的答案並結束考試。
+              </p>
+              <Button 
+                onClick={() => setShowCheatAlert(false)} 
+                className="w-full bg-destructive hover:bg-destructive/90 text-destructive-foreground h-12 text-lg font-bold"
+              >
+                我明白，立即返回考試
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/10 mb-3">
