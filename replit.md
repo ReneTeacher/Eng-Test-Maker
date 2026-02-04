@@ -6,9 +6,9 @@ A web-based dictation testing application for school classrooms supporting two e
 
 This application allows:
 - **Teachers**: Create two types of exams:
-  - **Vocabulary Dictation**: Word | POS | Meaning format with weighted scoring
-  - **Text Dictation**: Sentence-by-sentence input with AI evaluation (Poe API / Gemini-3-Flash)
-- **Students**: Login with their details, take the active exam, and receive immediate feedback on their score with per-sentence breakdown
+  - **Vocabulary Dictation**: Word | POS | Meaning format with weighted scoring (100-point scale)
+  - **Text Dictation**: Sentence-by-sentence input with AI evaluation (Poe API / Gemini-3-Flash) (100-point scale)
+- **Students**: Access exams via unique links provided by teachers, login with their details, take the test, and receive immediate feedback on their score
 
 ## Tech Stack
 
@@ -17,29 +17,45 @@ This application allows:
 - **Database**: PostgreSQL with Drizzle ORM
 - **Export**: ExcelJS library for Excel export
 
+## Routing Structure
+
+- `/` - Admin login (homepage)
+- `/admin` - Admin login
+- `/admin/dashboard` - Admin dashboard with exam management
+- `/admin/create-exam` - Create new exam
+- `/admin/edit-exam/:id` - Edit existing exam
+- `/exam/:id` - Student login for specific exam (unique link per exam)
+- `/exam/:id/test` - Student exam page
+- `/thank-you` - Score display after submission
+
 ## Key Features
 
-### Student Interface (`/`)
-- Login with name, student number (1-40), original class (J3A/J3B/J3C), mixed class
+### Student Interface (`/exam/:id`)
+- Each exam has a unique URL that teachers can share with students
+- Students login with name, student number (1-40), original class (J3A/J3B/J3C), mixed class
 - Each vocabulary question has 3 input fields: English Word, Part of Speech, Chinese Meaning
 - Anti-cheating measures:
   - All inputs have `autocomplete="off"`, `autocorrect="off"`, `autocapitalize="off"`, `spellcheck="false"`
   - Paste prevention on all input fields
   - Tab/window visibility change detection with alert warning
 - Grading: All 3 parts must match (English word/POS: case-insensitive, Chinese meaning: exact match)
-- Immediate score display after submission
+- Immediate score display after submission (out of 100 points)
 
-### Teacher Admin Panel (`/admin`)
-- Password protected (env var: ADMIN_PASSWORD, default: "admin123")
+### Teacher Admin Panel (`/` or `/admin`)
+- Homepage is now the admin login (password protected via env var: ADMIN_PASSWORD)
 - Create exams with vocabulary format: `Word | POS | Meaning` (one vocabulary per line)
   - Example: `Apple | n. | 蘋果`
 - Real-time preview showing parsed vocabularies with validation
-- Toggle exam active status (only one can be active)
+- **Multiple exams can run simultaneously** - no more single active exam restriction
+- Each exam displays its unique student link for easy sharing
+- Copy link button to share exam URL with students
 - View all submissions with scores
-- Export to Excel with expanded columns per question:
-  - Q{n}_StudentWord, Q{n}_StudentPOS, Q{n}_StudentMeaning
-  - Q{n}_CorrectWord, Q{n}_CorrectPOS, Q{n}_CorrectMeaning
-  - Q{n}_Correct (Yes/No)
+- Export to Excel with expanded columns per question
+
+### 100-Point Scoring System
+- All exams are scored out of 100 points maximum
+- **Vocabulary Dictation**: Points distributed across questions (50% Word, 25% POS, 25% Meaning)
+- **Text Dictation**: Points distributed evenly across sentences
 
 ## Database Schema
 

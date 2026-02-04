@@ -14,13 +14,8 @@ import {
   LogOut, 
   Users, 
   FileText, 
-  CheckCircle, 
-  Clock,
-  ToggleLeft,
-  ToggleRight,
   Trash2,
-  Copy,
-  Link as LinkIcon
+  Copy
 } from "lucide-react";
 import type { Exam, StudentSubmission } from "@shared/schema";
 
@@ -41,20 +36,6 @@ export default function AdminDashboard() {
 
   const { data: submissions, isLoading: submissionsLoading } = useQuery<StudentSubmission[]>({
     queryKey: ["/api/submissions"],
-  });
-
-  const toggleActiveMutation = useMutation({
-    mutationFn: async ({ examId, isActive }: { examId: number; isActive: boolean }) => {
-      const response = await apiRequest("PATCH", `/api/exams/${examId}`, { isActive });
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
-      toast({ title: "Exam status updated" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to update", description: error.message, variant: "destructive" });
-    },
   });
 
   const deleteExamMutation = useMutation({
@@ -105,8 +86,6 @@ export default function AdminDashboard() {
     toast({ title: "Link copied to clipboard" });
   };
 
-  const activeExam = exams?.find(e => e.isActive);
-  const activeExamSubmissions = submissions?.filter(s => s.examId === activeExam?.id) || [];
 
   const formatDate = (date: Date | string) => {
     const d = new Date(date);
@@ -147,7 +126,7 @@ export default function AdminDashboard() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -170,19 +149,6 @@ export default function AdminDashboard() {
                 <div>
                   <p className="text-2xl font-bold">{submissions?.length || 0}</p>
                   <p className="text-sm text-muted-foreground">Total Submissions</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-yellow-500/10 flex items-center justify-center">
-                  <CheckCircle className="w-6 h-6 text-yellow-500" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{activeExam ? 1 : 0}</p>
-                  <p className="text-sm text-muted-foreground">Active Exam</p>
                 </div>
               </div>
             </CardContent>
@@ -219,7 +185,8 @@ export default function AdminDashboard() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Title</TableHead>
-                    <TableHead>Status</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Student Link</TableHead>
                     <TableHead>Submissions</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -232,13 +199,25 @@ export default function AdminDashboard() {
                       <TableRow key={exam.id}>
                         <TableCell className="font-medium">{exam.title}</TableCell>
                         <TableCell>
-                          {exam.isActive ? (
-                            <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
-                              Active
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary">Inactive</Badge>
-                          )}
+                          <Badge variant="secondary">
+                            {exam.examType === "text" ? "Text" : "Vocab"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <code className="text-xs bg-muted px-2 py-1 rounded max-w-[200px] truncate">
+                              /exam/{exam.id}
+                            </code>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => copyExamLink(exam.id)}
+                              title="複製學生連結"
+                              data-testid={`button-copy-link-${exam.id}`}
+                            >
+                              <Copy className="w-4 h-4 text-blue-500" />
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell>{examSubmissions.length}</TableCell>
                         <TableCell className="text-muted-foreground">
@@ -246,15 +225,6 @@ export default function AdminDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => copyExamLink(exam.id)}
-                              title="Copy student link"
-                              data-testid={`button-copy-link-${exam.id}`}
-                            >
-                              <Copy className="w-4 h-4 text-blue-500" />
-                            </Button>
                             <Link href={`/admin/edit-exam/${exam.id}`}>
                               <Button
                                 size="sm"
@@ -264,22 +234,6 @@ export default function AdminDashboard() {
                                 <FileText className="w-4 h-4" />
                               </Button>
                             </Link>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => toggleActiveMutation.mutate({ 
-                                examId: exam.id, 
-                                isActive: !exam.isActive 
-                              })}
-                              disabled={toggleActiveMutation.isPending}
-                              data-testid={`button-toggle-${exam.id}`}
-                            >
-                              {exam.isActive ? (
-                                <ToggleRight className="w-4 h-4 text-green-500" />
-                              ) : (
-                                <ToggleLeft className="w-4 h-4" />
-                              )}
-                            </Button>
                             <Button
                               size="sm"
                               variant="ghost"
@@ -312,74 +266,6 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
 
-        {activeExam && (
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
-              <div>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Current Exam Submissions
-                </CardTitle>
-                <CardDescription>
-                  Students who submitted "{activeExam.title}"
-                </CardDescription>
-              </div>
-              <Button 
-                variant="outline" 
-                onClick={() => handleExport(activeExam.id)}
-                disabled={!activeExamSubmissions.length}
-                data-testid="button-export-current"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export to Excel
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {submissionsLoading ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map(i => (
-                    <Skeleton key={i} className="h-12 w-full" />
-                  ))}
-                </div>
-              ) : !activeExamSubmissions.length ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Clock className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>No submissions yet</p>
-                  <p className="text-sm">Waiting for students to complete the test</p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Number</TableHead>
-                      <TableHead>Original Class</TableHead>
-                      <TableHead>Mixed Class</TableHead>
-                      <TableHead>Score</TableHead>
-                      <TableHead>Submitted</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {activeExamSubmissions.map((sub) => (
-                      <TableRow key={sub.id} data-testid={`row-submission-${sub.id}`}>
-                        <TableCell className="font-medium">{sub.studentName}</TableCell>
-                        <TableCell>{sub.studentNumber}</TableCell>
-                        <TableCell>{sub.originalClass}</TableCell>
-                        <TableCell>{sub.mixedClass}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">{sub.totalScore}</Badge>
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {formatDate(sub.submittedAt)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        )}
       </main>
     </div>
   );

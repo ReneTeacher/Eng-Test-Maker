@@ -14,14 +14,14 @@ import AdminCreateExam from "@/pages/admin-create-exam";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={StudentLogin} />
-      <Route path="/exam" component={StudentExam} />
-      <Route path="/thank-you" component={ThankYou} />
+      <Route path="/" component={AdminLogin} />
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/create-exam" component={AdminCreateExam} />
       <Route path="/admin/edit-exam/:id" component={AdminCreateExam} />
-      <Route path="/exam/:id" component={StudentExam} />
+      <Route path="/exam/:id" component={StudentLogin} />
+      <Route path="/exam/:id/test" component={StudentExam} />
+      <Route path="/thank-you" component={ThankYou} />
       <Route component={NotFound} />
     </Switch>
   );

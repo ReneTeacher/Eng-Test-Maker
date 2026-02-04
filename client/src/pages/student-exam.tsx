@@ -43,15 +43,15 @@ export default function StudentExam() {
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
     if (!stored) {
-      navigate("/");
+      navigate(id ? `/exam/${id}` : "/");
       return;
     }
     try {
       setStudentInfo(JSON.parse(stored));
     } catch {
-      navigate("/");
+      navigate(id ? `/exam/${id}` : "/");
     }
-  }, [navigate]);
+  }, [navigate, id]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -68,8 +68,8 @@ export default function StudentExam() {
   }, []);
 
   const { data: activeExam, isLoading, error } = useQuery<ActiveExam>({
-    queryKey: [id ? `/api/exams/${id}` : "/api/exams/active"],
-    enabled: !!studentInfo,
+    queryKey: [`/api/exams/${id}`],
+    enabled: !!studentInfo && !!id,
   });
   
   const hasSentences = activeExam && 'sentences' in activeExam && activeExam.sentences?.length > 0;
@@ -255,7 +255,7 @@ export default function StudentExam() {
             <p className="text-muted-foreground mb-6">
               There is no dictation test available at the moment. Please check with your teacher.
             </p>
-            <Button onClick={() => navigate("/")} variant="outline" data-testid="button-go-back">
+            <Button onClick={() => navigate(id ? `/exam/${id}` : "/")} variant="outline" data-testid="button-go-back">
               Go Back
             </Button>
           </CardContent>

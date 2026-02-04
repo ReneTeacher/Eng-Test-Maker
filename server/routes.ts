@@ -99,11 +99,6 @@ export async function registerRoutes(
 
       const type = examType === "text" ? "text" : "vocab";
 
-      // If setting as active, deactivate all others first
-      if (isActive) {
-        await storage.deactivateAllExams();
-      }
-
       if (type === "text") {
         // Text Dictation exam
         if (!correctText || typeof correctText !== "string" || !correctText.trim()) {
@@ -237,10 +232,7 @@ export async function registerRoutes(
       }
 
       if (typeof isActive === "boolean" && !title && !vocabularies && !correctText) {
-        // Simple toggle
-        if (isActive) {
-          await storage.deactivateAllExams();
-        }
+        // Simple toggle - no longer deactivates others, multiple exams can be active
         const updated = await storage.updateExam(examId, { isActive });
         res.json(updated);
         return;
@@ -248,12 +240,9 @@ export async function registerRoutes(
 
       // Full update for Text Dictation
       if (currentExam.examType === "text" && title && correctText) {
-        if (isActive) {
-          await storage.deactivateAllExams();
-        }
         const updated = await storage.updateExam(examId, { 
           title, 
-          isActive: isActive ?? false,
+          isActive: isActive ?? currentExam.isActive,
           correctText 
         });
 
@@ -304,11 +293,7 @@ export async function registerRoutes(
           parsedVocabs.push({ word: parts[0], pos: parts[1], meaning: parts[2] });
         }
 
-        if (isActive) {
-          await storage.deactivateAllExams();
-        }
-
-        const updated = await storage.updateExam(examId, { title, isActive: isActive ?? false });
+        const updated = await storage.updateExam(examId, { title, isActive: isActive ?? currentExam.isActive });
         
         // Remove old questions and create new ones
         // In a real app we might want to map existing questions, but replacing is simpler for this format
