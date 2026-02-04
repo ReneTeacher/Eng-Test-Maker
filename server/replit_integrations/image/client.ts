@@ -2,9 +2,11 @@ import fs from "node:fs";
 import OpenAI, { toFile } from "openai";
 import { Buffer } from "node:buffer";
 
+// Using Poe API (OpenAI-compatible)
+// Note: Image generation may have limited support on Poe
 export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.POE_API_KEY,
+  baseURL: "https://api.poe.com/bot/v1",
 });
 
 /**

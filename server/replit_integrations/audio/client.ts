@@ -6,9 +6,11 @@ import { randomUUID } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
 
+// Using Poe API (OpenAI-compatible)
+// Note: Audio features may have limited support on Poe
 export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  apiKey: process.env.POE_API_KEY,
+  baseURL: "https://api.poe.com/bot/v1",
 });
 
 export type AudioFormat = "wav" | "mp3" | "webm" | "mp4" | "ogg" | "unknown";
