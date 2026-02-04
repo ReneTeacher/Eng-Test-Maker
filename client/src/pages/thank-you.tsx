@@ -6,8 +6,11 @@ import { CheckCircle, Trophy, Home } from "lucide-react";
 
 interface SubmissionResult {
   totalScore: number;
-  totalQuestions: number;
+  totalQuestions?: number;
+  maxScore?: number;
   studentName: string;
+  isTextDictation?: boolean;
+  feedback?: string;
 }
 
 export default function ThankYou() {
@@ -25,7 +28,9 @@ export default function ThankYou() {
     }
   }, []);
 
-  const percentage = result ? Math.round((result.totalScore / result.totalQuestions) * 100) : 0;
+  const isTextDictation = result?.isTextDictation;
+  const maxPossible = isTextDictation ? (result?.maxScore || 100) : (result?.totalQuestions || 1);
+  const percentage = result ? Math.round((result.totalScore / maxPossible) * 100) : 0;
 
   const getScoreColor = () => {
     if (percentage >= 80) return "text-green-600 dark:text-green-400";
@@ -64,14 +69,20 @@ export default function ThankYou() {
                   <span className="text-lg font-medium">Your Score</span>
                 </div>
                 <div className={`text-5xl font-bold ${getScoreColor()} mb-1`}>
-                  {result.totalScore} / {result.totalQuestions}
+                  {result.totalScore} / {maxPossible}
                 </div>
                 <div className="text-muted-foreground text-sm">
-                  {percentage}% correct
+                  {percentage}% {isTextDictation ? "" : "correct"}
                 </div>
                 <p className={`mt-3 font-medium ${getScoreColor()}`}>
                   {getScoreMessage()}
                 </p>
+                {isTextDictation && result.feedback && (
+                  <div className="mt-4 p-3 bg-background rounded-md text-left">
+                    <p className="text-sm text-muted-foreground font-medium mb-1">AI 評語：</p>
+                    <p className="text-sm">{result.feedback}</p>
+                  </div>
+                )}
               </div>
             </>
           ) : (

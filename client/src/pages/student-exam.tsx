@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { BookOpen, Send, AlertCircle, User, ClipboardList } from "lucide-react";
+import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import type { ExamWithQuestions, StudentLogin } from "@shared/schema";
 
 interface VocabAnswer {
@@ -22,6 +23,7 @@ export default function StudentExam() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [answers, setAnswers] = useState<Record<number, VocabAnswer>>({});
+  const [textAnswer, setTextAnswer] = useState("");
   const [studentInfo, setStudentInfo] = useState<StudentLogin | null>(null);
 
   useEffect(() => {
@@ -82,6 +84,32 @@ export default function StudentExam() {
     },
   });
 
+  const submitTextMutation = useMutation({
+    mutationFn: async (data: { examId: number; studentText: string }) => {
+      const response = await apiRequest("POST", "/api/text-submissions", {
+        ...studentInfo,
+        examId: data.examId,
+        studentText: data.studentText,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      sessionStorage.setItem("submissionResult", JSON.stringify({
+        ...data,
+        isTextDictation: true,
+      }));
+      sessionStorage.removeItem("studentInfo");
+      navigate("/thank-you");
+    },
+    onError: (error: Error) => {
+      toast({ 
+        title: "Submission Failed", 
+        description: error.message,
+        variant: "destructive" 
+      });
+    },
+  });
+
   const handleAnswerChange = (questionId: number, field: keyof VocabAnswer, value: string) => {
     setAnswers(prev => ({
       ...prev,
@@ -105,18 +133,37 @@ export default function StudentExam() {
     
     if (!activeExam) return;
 
-    const submissionAnswers = activeExam.questions.map(q => ({
-      questionId: q.id,
-      studentWord: answers[q.id]?.word?.trim() || "",
-      studentPos: answers[q.id]?.pos?.trim() || "",
-      studentMeaning: answers[q.id]?.meaning?.trim() || "",
-    }));
+    // Check if this is a text dictation exam
+    if (activeExam.examType === "text") {
+      if (!textAnswer.trim()) {
+        toast({ 
+          title: "Please enter your dictation", 
+          variant: "destructive" 
+        });
+        return;
+      }
+      submitTextMutation.mutate({
+        examId: activeExam.id,
+        studentText: textAnswer.trim(),
+      });
+    } else {
+      // Vocab quiz
+      const submissionAnswers = activeExam.questions.map(q => ({
+        questionId: q.id,
+        studentWord: answers[q.id]?.word?.trim() || "",
+        studentPos: answers[q.id]?.pos?.trim() || "",
+        studentMeaning: answers[q.id]?.meaning?.trim() || "",
+      }));
 
-    submitMutation.mutate({
-      examId: activeExam.id,
-      answers: submissionAnswers,
-    });
+      submitMutation.mutate({
+        examId: activeExam.id,
+        answers: submissionAnswers,
+      });
+    }
   };
+  
+  const isTextExam = activeExam?.examType === "text";
+  const isSubmitting = submitMutation.isPending || submitTextMutation.isPending;
 
   if (!studentInfo) {
     return null;
@@ -176,11 +223,14 @@ export default function StudentExam() {
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/10 mb-3">
-            <BookOpen className="w-7 h-7 text-primary" />
+            {isTextExam ? <FileText className="w-7 h-7 text-primary" /> : <BookOpen className="w-7 h-7 text-primary" />}
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-1">{activeExam.title}</h1>
           <p className="text-muted-foreground text-sm">
-            {activeExam.questions.length} {activeExam.questions.length === 1 ? "vocabulary" : "vocabularies"} to complete
+            {isTextExam 
+              ? "Text Dictation - Listen and type the passage"
+              : `${activeExam.questions.length} ${activeExam.questions.length === 1 ? "vocabulary" : "vocabularies"} to complete`
+            }
           </p>
         </div>
 
@@ -201,18 +251,46 @@ export default function StudentExam() {
         <Card className="border-border">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg flex items-center gap-2">
-              <ClipboardList className="w-5 h-5" />
-              Dictation Test
+              {isTextExam ? <FileText className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
+              {isTextExam ? "Text Dictation" : "Vocabulary Test"}
             </CardTitle>
             <CardDescription>
-              For each vocabulary, enter the English word, part of speech, and Chinese meaning
+              {isTextExam 
+                ? "Listen carefully and type the passage exactly as you hear it"
+                : "For each vocabulary, enter the English word, part of speech, and Chinese meaning"
+              }
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {activeExam.questions
-                .sort((a, b) => a.wordOrder - b.wordOrder)
-                .map((question, index) => (
+              {isTextExam ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="text-answer" className="text-sm font-medium">
+                      Type the passage here
+                    </Label>
+                    <Textarea
+                      id="text-answer"
+                      data-testid="textarea-student-text"
+                      placeholder="Type the passage exactly as you hear it..."
+                      value={textAnswer}
+                      onChange={(e) => setTextAnswer(e.target.value)}
+                      onPaste={handlePaste}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      className="min-h-[200px] text-base"
+                    />
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Pay attention to spelling, punctuation, and capitalization. AI will grade your submission.
+                  </p>
+                </div>
+              ) : (
+                activeExam.questions
+                  .sort((a, b) => a.wordOrder - b.wordOrder)
+                  .map((question, index) => (
                   <Card key={question.id} className="border-border">
                     <CardContent className="pt-4 space-y-4">
                       <div className="flex items-center gap-2 mb-2">
@@ -280,21 +358,22 @@ export default function StudentExam() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                ))
+              )}
 
               <div className="pt-4">
                 <Button 
                   type="submit" 
                   className="w-full h-12 text-base font-medium"
-                  disabled={submitMutation.isPending}
+                  disabled={isSubmitting}
                   data-testid="button-submit-exam"
                 >
-                  {submitMutation.isPending ? (
+                  {isSubmitting ? (
                     "Submitting..."
                   ) : (
                     <>
                       <Send className="w-4 h-4 mr-2" />
-                      Submit Answers
+                      {isTextExam ? "Submit Dictation" : "Submit Answers"}
                     </>
                   )}
                 </Button>
