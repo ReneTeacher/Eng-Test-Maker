@@ -125,13 +125,13 @@ export default function AdminCreateExam() {
                 <Textarea
                   id="vocabularies"
                   data-testid="textarea-vocabularies"
-                  placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | n. | 蘋果&#10;Run | v. | 跑&#10;Beautiful | adj. | 美麗的"
+                  placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | noun | 蘋果&#10;Run | verb | 跑, 跑步&#10;Quick | adjective | 快的/迅速的"
                   value={vocabularies}
                   onChange={(e) => setVocabularies(e.target.value)}
                   className="min-h-[200px] font-mono text-sm"
                 />
                 <p className="text-sm text-muted-foreground">
-                  Format: Word | Part of Speech | Chinese Meaning. Each line is one question. Students must answer all 3 parts correctly.
+                  Format: Word | Part of Speech | Chinese Meaning. Use '/' or ',' for multiple acceptable answers. Part of Speech should be the full name (e.g., noun, verb).
                 </p>
               </div>
 

@@ -187,9 +187,18 @@ export async function registerRoutes(
       for (const answer of answers) {
         const question = questions.find(q => q.id === answer.questionId);
         if (question) {
-          const wordMatch = answer.studentWord.trim().toLowerCase() === question.correctWord.trim().toLowerCase();
-          const posMatch = answer.studentPos.trim().toLowerCase() === question.correctPos.trim().toLowerCase();
-          const meaningMatch = answer.studentMeaning.trim() === question.correctMeaning.trim();
+          const studentWord = answer.studentWord.trim().toLowerCase();
+          const studentPos = answer.studentPos.trim().toLowerCase();
+          const studentMeaning = answer.studentMeaning.trim();
+
+          // Split correct answers by comma or slash
+          const correctWords = question.correctWord.split(/[,/]/).map(w => w.trim().toLowerCase());
+          const correctPosList = question.correctPos.split(/[,/]/).map(p => p.trim().toLowerCase());
+          const correctMeanings = question.correctMeaning.split(/[,/]/).map(m => m.trim());
+
+          const wordMatch = correctWords.includes(studentWord);
+          const posMatch = correctPosList.includes(studentPos);
+          const meaningMatch = correctMeanings.includes(studentMeaning);
           
           const isCorrect = wordMatch && posMatch && meaningMatch;
           if (isCorrect) totalScore++;

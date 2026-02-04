@@ -242,12 +242,12 @@ export default function StudentExam() {
 
                       <div className="space-y-2">
                         <Label htmlFor={`pos-${question.id}`} className="text-sm">
-                          Part of Speech
+                          Part of Speech (Full Name)
                         </Label>
                         <Input
                           id={`pos-${question.id}`}
                           data-testid={`input-pos-${index + 1}`}
-                          placeholder="e.g., n. / v. / adj."
+                          placeholder="e.g., noun, verb, adjective"
                           value={answers[question.id]?.pos || ""}
                           onChange={(e) => handleAnswerChange(question.id, "pos", e.target.value)}
                           onPaste={handlePaste}
