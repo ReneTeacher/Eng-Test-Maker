@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { examSubmissionSchema, createExamSchema } from "@shared/schema";
 import * as XLSX from "xlsx";
 
-const ADMIN_PASSWORD = "teacher123";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 export async function registerRoutes(
   httpServer: Server,
