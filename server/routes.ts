@@ -358,8 +358,15 @@ export async function registerRoutes(
         res.status(404).json({ message: "Exam not found" });
         return;
       }
-      const questions = await storage.getQuestionsByExamId(examId);
-      res.json({ ...exam, questions });
+      
+      // Return sentences for text exams, questions for vocab exams
+      if (exam.examType === "text") {
+        const sentences = await storage.getTextSentencesByExamId(examId);
+        res.json({ ...exam, sentences });
+      } else {
+        const questions = await storage.getQuestionsByExamId(examId);
+        res.json({ ...exam, questions });
+      }
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch exam" });
     }

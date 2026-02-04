@@ -76,7 +76,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveExam(): Promise<ExamWithQuestions | undefined> {
-    const [exam] = await db.select().from(exams).where(eq(exams.isActive, true));
+    // Only return vocab exams (not text exams)
+    const allActive = await db.select().from(exams).where(eq(exams.isActive, true));
+    const exam = allActive.find(e => e.examType === "vocab");
     if (!exam) return undefined;
     
     const questionList = await db
@@ -173,9 +175,13 @@ export class DatabaseStorage implements IStorage {
     mixedClass: string;
     studentText: string;
     totalScore: number;
+    maxScore?: number;
     feedback?: string;
   }): Promise<TextSubmission> {
-    const [created] = await db.insert(textSubmissions).values(data).returning();
+    const [created] = await db.insert(textSubmissions).values({
+      ...data,
+      maxScore: data.maxScore ?? 100,
+    }).returning();
     return created;
   }
 

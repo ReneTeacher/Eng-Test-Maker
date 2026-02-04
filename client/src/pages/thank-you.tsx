@@ -4,6 +4,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Trophy, Home } from "lucide-react";
 
+interface SentenceResult {
+  sentenceId: number;
+  earned: number;
+  max: number;
+  feedback: string;
+}
+
 interface SubmissionResult {
   totalScore: number;
   totalQuestions?: number;
@@ -11,6 +18,7 @@ interface SubmissionResult {
   studentName: string;
   isTextDictation?: boolean;
   feedback?: string;
+  sentenceResults?: SentenceResult[];
 }
 
 export default function ThankYou() {
@@ -77,7 +85,20 @@ export default function ThankYou() {
                 <p className={`mt-3 font-medium ${getScoreColor()}`}>
                   {getScoreMessage()}
                 </p>
-                {isTextDictation && result.feedback && (
+                {isTextDictation && result.sentenceResults && result.sentenceResults.length > 0 && (
+                  <div className="mt-4 p-3 bg-background rounded-md text-left space-y-2">
+                    <p className="text-sm text-muted-foreground font-medium mb-2">每句得分：</p>
+                    {result.sentenceResults.map((sr, idx) => (
+                      <div key={sr.sentenceId} className="flex items-center justify-between text-sm border-b border-border/50 pb-1 last:border-0">
+                        <span>第 {idx + 1} 句</span>
+                        <span className={sr.earned === sr.max ? "text-green-600 dark:text-green-400" : sr.earned >= sr.max * 0.6 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}>
+                          {sr.earned} / {sr.max} 分
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {isTextDictation && result.feedback && !result.sentenceResults && (
                   <div className="mt-4 p-3 bg-background rounded-md text-left">
                     <p className="text-sm text-muted-foreground font-medium mb-1">AI 評語：</p>
                     <p className="text-sm">{result.feedback}</p>
