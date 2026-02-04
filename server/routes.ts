@@ -868,5 +868,255 @@ Respond in this exact JSON format only, no other text:
     }
   });
 
+  // Get all text submissions
+  app.get("/api/text-submissions", async (req, res) => {
+    try {
+      const submissions = await storage.getTextSubmissions();
+      res.json(submissions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch text submissions" });
+    }
+  });
+
+  // Get vocab submission with details
+  app.get("/api/submissions/:id", async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const submission = await storage.getSubmissionWithDetails(submissionId);
+      if (!submission) {
+        res.status(404).json({ message: "Submission not found" });
+        return;
+      }
+      
+      // Get questions for this exam
+      const questions = await storage.getQuestionsByExamId(submission.examId);
+      res.json({ ...submission, questions });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch submission details" });
+    }
+  });
+
+  // Get text submission with details
+  app.get("/api/text-submissions/:id", async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const submission = await storage.getTextSubmissionWithDetails(submissionId);
+      if (!submission) {
+        res.status(404).json({ message: "Submission not found" });
+        return;
+      }
+      
+      // Get sentences for this exam
+      const sentences = await storage.getTextSentencesByExamId(submission.examId);
+      res.json({ ...submission, sentences });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch text submission details" });
+    }
+  });
+
+  // Update vocab submission score (admin adjust)
+  app.patch("/api/submissions/:id", async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const { totalScore, answers } = req.body;
+      
+      if (typeof totalScore === "number") {
+        await storage.updateSubmissionScore(submissionId, totalScore);
+      }
+      
+      // Update individual answer scores if provided
+      if (answers && Array.isArray(answers)) {
+        for (const answer of answers) {
+          if (answer.id && typeof answer.earnedScore === "number") {
+            await storage.updateAnswerDetail(answer.id, { earnedScore: answer.earnedScore });
+          }
+        }
+      }
+      
+      const updated = await storage.getSubmissionWithDetails(submissionId);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update submission" });
+    }
+  });
+
+  // Update text submission score (admin adjust)
+  app.patch("/api/text-submissions/:id", async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.id);
+      const { totalScore, answers } = req.body;
+      
+      if (typeof totalScore === "number") {
+        await storage.updateTextSubmissionScore(submissionId, totalScore);
+      }
+      
+      // Update individual answer scores if provided
+      if (answers && Array.isArray(answers)) {
+        for (const answer of answers) {
+          if (answer.id && typeof answer.earnedScore === "number") {
+            await storage.updateTextAnswerDetail(answer.id, { earnedScore: answer.earnedScore });
+          }
+        }
+      }
+      
+      const updated = await storage.getTextSubmissionWithDetails(submissionId);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update text submission" });
+    }
+  });
+
+  // Get analytics for an exam
+  app.get("/api/exams/:id/analytics", async (req, res) => {
+    try {
+      const examId = parseInt(req.params.id);
+      const exam = await storage.getExamById(examId);
+      if (!exam) {
+        res.status(404).json({ message: "Exam not found" });
+        return;
+      }
+
+      if (exam.examType === "text") {
+        const submissions = await storage.getTextSubmissionsByExamId(examId);
+        const sentences = await storage.getTextSentencesByExamId(examId);
+        
+        if (submissions.length === 0) {
+          res.json({
+            examType: "text",
+            totalSubmissions: 0,
+            averageScore: 0,
+            maxScore: 100,
+            highestScore: 0,
+            lowestScore: 0,
+            passRate: 0,
+            scoreDistribution: [],
+            sentenceAnalysis: [],
+          });
+          return;
+        }
+
+        const scores = submissions.map(s => s.totalScore);
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const passCount = scores.filter(s => s >= 60).length;
+
+        // Score distribution in 10-point buckets
+        const distribution = Array(11).fill(0);
+        scores.forEach(s => {
+          const bucket = Math.min(Math.floor(s / 10), 10);
+          distribution[bucket]++;
+        });
+
+        // Sentence difficulty analysis
+        const sentenceAnalysis = await Promise.all(sentences.map(async (sentence) => {
+          let totalEarned = 0;
+          let count = 0;
+          
+          for (const sub of submissions) {
+            const details = await storage.getTextAnswerDetailsBySubmissionId(sub.id);
+            const detail = details.find(d => d.sentenceId === sentence.id);
+            if (detail) {
+              totalEarned += detail.earnedScore;
+              count++;
+            }
+          }
+          
+          return {
+            sentenceId: sentence.id,
+            order: sentence.sentenceOrder,
+            maxScore: sentence.maxScore,
+            averageScore: count > 0 ? totalEarned / count : 0,
+            correctRate: count > 0 ? (totalEarned / count) / sentence.maxScore * 100 : 0,
+          };
+        }));
+
+        res.json({
+          examType: "text",
+          totalSubmissions: submissions.length,
+          averageScore: Math.round(avg * 10) / 10,
+          maxScore: 100,
+          highestScore: Math.max(...scores),
+          lowestScore: Math.min(...scores),
+          passRate: Math.round((passCount / submissions.length) * 100),
+          scoreDistribution: distribution,
+          sentenceAnalysis,
+        });
+      } else {
+        const submissions = await storage.getSubmissionsByExamId(examId);
+        const questions = await storage.getQuestionsByExamId(examId);
+        
+        if (submissions.length === 0) {
+          res.json({
+            examType: "vocab",
+            totalSubmissions: 0,
+            averageScore: 0,
+            maxScore: 100,
+            highestScore: 0,
+            lowestScore: 0,
+            passRate: 0,
+            scoreDistribution: [],
+            questionAnalysis: [],
+          });
+          return;
+        }
+
+        const scores = submissions.map(s => s.totalScore);
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const passCount = scores.filter(s => s >= 60).length;
+
+        const distribution = Array(11).fill(0);
+        scores.forEach(s => {
+          const bucket = Math.min(Math.floor(s / 10), 10);
+          distribution[bucket]++;
+        });
+
+        // Question difficulty analysis
+        const questionAnalysis = await Promise.all(questions.map(async (q) => {
+          let wordCorrectCount = 0;
+          let posCorrectCount = 0;
+          let meaningCorrectCount = 0;
+          let totalCount = 0;
+          
+          for (const sub of submissions) {
+            const details = await storage.getAnswerDetailsBySubmissionId(sub.id);
+            const detail = details.find(d => d.questionId === q.id);
+            if (detail) {
+              if (detail.wordCorrect) wordCorrectCount++;
+              if (detail.posCorrect) posCorrectCount++;
+              if (detail.meaningCorrect) meaningCorrectCount++;
+              totalCount++;
+            }
+          }
+          
+          return {
+            questionId: q.id,
+            order: q.wordOrder,
+            word: q.correctWord,
+            pos: q.correctPos,
+            meaning: q.correctMeaning,
+            wordCorrectRate: totalCount > 0 ? Math.round((wordCorrectCount / totalCount) * 100) : 0,
+            posCorrectRate: totalCount > 0 ? Math.round((posCorrectCount / totalCount) * 100) : 0,
+            meaningCorrectRate: totalCount > 0 ? Math.round((meaningCorrectCount / totalCount) * 100) : 0,
+            overallCorrectRate: totalCount > 0 ? Math.round(((wordCorrectCount + posCorrectCount + meaningCorrectCount) / (totalCount * 3)) * 100) : 0,
+          };
+        }));
+
+        res.json({
+          examType: "vocab",
+          totalSubmissions: submissions.length,
+          averageScore: Math.round(avg * 10) / 10,
+          maxScore: 100,
+          highestScore: Math.max(...scores),
+          lowestScore: Math.min(...scores),
+          passRate: Math.round((passCount / submissions.length) * 100),
+          scoreDistribution: distribution,
+          questionAnalysis,
+        });
+      }
+    } catch (error) {
+      console.error("Analytics error:", error);
+      res.status(500).json({ message: "Failed to get analytics" });
+    }
+  });
+
   return httpServer;
 }

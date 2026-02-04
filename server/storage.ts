@@ -236,6 +236,39 @@ export class DatabaseStorage implements IStorage {
   async getTextAnswerDetailsBySubmissionId(submissionId: number): Promise<TextAnswerDetail[]> {
     return db.select().from(textAnswerDetails).where(eq(textAnswerDetails.submissionId, submissionId));
   }
+
+  // Get all text submissions
+  async getTextSubmissions(): Promise<TextSubmission[]> {
+    return db.select().from(textSubmissions).orderBy(desc(textSubmissions.submittedAt));
+  }
+
+  // Get submission with details
+  async getSubmissionWithDetails(submissionId: number): Promise<(StudentSubmission & { answers: AnswerDetail[] }) | undefined> {
+    const [submission] = await db.select().from(studentSubmissions).where(eq(studentSubmissions.id, submissionId));
+    if (!submission) return undefined;
+    
+    const answers = await this.getAnswerDetailsBySubmissionId(submissionId);
+    return { ...submission, answers };
+  }
+
+  // Get text submission with details
+  async getTextSubmissionWithDetails(submissionId: number): Promise<(TextSubmission & { answers: TextAnswerDetail[] }) | undefined> {
+    const [submission] = await db.select().from(textSubmissions).where(eq(textSubmissions.id, submissionId));
+    if (!submission) return undefined;
+    
+    const answers = await this.getTextAnswerDetailsBySubmissionId(submissionId);
+    return { ...submission, answers };
+  }
+
+  // Update text submission score
+  async updateTextSubmissionScore(id: number, score: number): Promise<void> {
+    await db.update(textSubmissions).set({ totalScore: score }).where(eq(textSubmissions.id, id));
+  }
+
+  // Update text answer detail
+  async updateTextAnswerDetail(id: number, data: Partial<TextAnswerDetail>): Promise<void> {
+    await db.update(textAnswerDetails).set(data).where(eq(textAnswerDetails.id, id));
+  }
 }
 
 export const storage = new DatabaseStorage();

@@ -15,7 +15,8 @@ import {
   Users, 
   FileText, 
   Trash2,
-  Copy
+  Copy,
+  Eye
 } from "lucide-react";
 import type { Exam, StudentSubmission } from "@shared/schema";
 
@@ -225,10 +226,21 @@ export default function AdminDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            <Link href={`/admin/submissions/${exam.id}`}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                title="查看提交記錄"
+                                data-testid={`button-submissions-${exam.id}`}
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </Link>
                             <Link href={`/admin/edit-exam/${exam.id}`}>
                               <Button
                                 size="sm"
                                 variant="ghost"
+                                title="編輯考試"
                                 data-testid={`button-edit-${exam.id}`}
                               >
                                 <FileText className="w-4 h-4" />
@@ -238,6 +250,7 @@ export default function AdminDashboard() {
                               size="sm"
                               variant="ghost"
                               onClick={() => handleExport(exam.id)}
+                              title="匯出 Excel"
                               data-testid={`button-export-${exam.id}`}
                             >
                               <Download className="w-4 h-4" />
@@ -251,6 +264,7 @@ export default function AdminDashboard() {
                                 }
                               }}
                               disabled={deleteExamMutation.isPending}
+                              title="刪除考試"
                               data-testid={`button-delete-${exam.id}`}
                             >
                               <Trash2 className="w-4 h-4 text-destructive" />

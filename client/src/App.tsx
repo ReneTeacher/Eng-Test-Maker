@@ -10,6 +10,7 @@ import ThankYou from "@/pages/thank-you";
 import AdminLogin from "@/pages/admin-login";
 import AdminDashboard from "@/pages/admin-dashboard";
 import AdminCreateExam from "@/pages/admin-create-exam";
+import AdminSubmissions from "@/pages/admin-submissions";
 
 function Router() {
   return (
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/create-exam" component={AdminCreateExam} />
       <Route path="/admin/edit-exam/:id" component={AdminCreateExam} />
+      <Route path="/admin/submissions/:examId" component={AdminSubmissions} />
       <Route path="/exam/:id" component={StudentLogin} />
       <Route path="/exam/:id/test" component={StudentExam} />
       <Route path="/thank-you" component={ThankYou} />
