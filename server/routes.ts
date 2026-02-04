@@ -131,8 +131,9 @@ export async function registerRoutes(
 
         // Create sentence records (distributed points to total 100)
         const totalPoints = 100;
-        const pointsPerSentence = Math.floor(totalPoints / sentences.length);
-        const remainder = totalPoints % sentences.length;
+        const sentencesParsed = sentences.length;
+        const pointsPerSentence = Math.floor(totalPoints / sentencesParsed);
+        const remainder = totalPoints % sentencesParsed;
 
         const sentenceData = sentences.map((sentence: string, index: number) => ({
           examId: exam.id,
@@ -255,6 +256,28 @@ export async function registerRoutes(
           isActive: isActive ?? false,
           correctText 
         });
+
+        // Split text into sentences and redistribute 100 points
+        const sentences = correctText.trim()
+          .split(/(?<=[.!?。！？])\s*/)
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+
+        if (sentences.length > 0) {
+          await storage.deleteTextSentencesByExamId(examId);
+          const totalPoints = 100;
+          const pointsPerSentence = Math.floor(totalPoints / sentences.length);
+          const remainder = totalPoints % sentences.length;
+
+          const sentenceData = sentences.map((sentence: string, index: number) => ({
+            examId,
+            sentenceOrder: index + 1,
+            correctSentence: sentence,
+            maxScore: pointsPerSentence + (index < remainder ? 1 : 0),
+          }));
+          await storage.createTextSentences(sentenceData);
+        }
+
         res.json(updated);
         return;
       }
