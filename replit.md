@@ -24,6 +24,7 @@ This application allows:
 - `/admin/dashboard` - Admin dashboard with exam management
 - `/admin/create-exam` - Create new exam
 - `/admin/edit-exam/:id` - Edit existing exam
+- `/admin/submissions/:examId` - Submission management with analytics and score editing
 - `/exam/:id` - Student login for specific exam (unique link per exam)
 - `/exam/:id/test` - Student exam page
 - `/thank-you` - Score display after submission
@@ -52,6 +53,21 @@ This application allows:
 - View all submissions with scores
 - Export to Excel with expanded columns per question
 
+### Submission Management (`/admin/submissions/:examId`)
+- **Detailed Submission View**: View each student's answers compared to correct answers with visual indicators (green for correct, red for incorrect)
+- **Score Editing**: Teachers can manually adjust individual question/sentence scores and total score
+- **Analytics Dashboard**:
+  - Total submissions count
+  - Average score, highest score, lowest score
+  - Pass rate (≥60 points)
+  - Score distribution chart (10-point buckets: 0-9, 10-19, ..., 90-100)
+  - Per-question difficulty analysis (vocab exams): word/POS/meaning correct rates
+  - Per-sentence performance analysis (text exams): average earned score per sentence
+- **Filtering & Sorting**:
+  - Search by student name or student number
+  - Filter by original class (J3A/J3B/J3C)
+  - Filter by score range: excellent (≥90), pass (≥60), fail (<60)
+
 ### 100-Point Scoring System
 - All exams are scored out of 100 points maximum
 - **Vocabulary Dictation**: Points distributed across questions (50% Word, 25% POS, 25% Meaning)
@@ -79,9 +95,15 @@ This application allows:
 - `POST /api/exams` - Create new exam (body: { title, vocabularies?, correctText?, isActive, examType })
 - `PATCH /api/exams/:id` - Update exam (toggle active)
 - `DELETE /api/exams/:id` - Delete exam
-- `GET /api/submissions` - List all submissions
+- `GET /api/submissions` - List all vocab submissions
+- `GET /api/submissions/:id` - Get vocab submission with answer details
 - `POST /api/submissions` - Submit vocab exam answers
+- `PATCH /api/submissions/:id` - Update vocab submission score (admin adjust)
+- `GET /api/text-submissions` - List all text submissions
+- `GET /api/text-submissions/:id` - Get text submission with answer details
 - `POST /api/text-submissions` - Submit text dictation (supports sentenceAnswers array for per-sentence scoring)
+- `PATCH /api/text-submissions/:id` - Update text submission score (admin adjust)
+- `GET /api/exams/:id/analytics` - Get analytics for an exam (stats, distribution, difficulty analysis)
 - `GET /api/export?examId=X` - Export to Excel
 
 ## Running the Application
