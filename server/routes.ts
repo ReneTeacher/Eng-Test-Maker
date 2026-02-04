@@ -82,64 +82,90 @@ export async function registerRoutes(
   // Create exam
   app.post("/api/exams", async (req, res) => {
     try {
-      const parsed = createExamSchema.safeParse(req.body);
-      if (!parsed.success) {
-        res.status(400).json({ message: "Invalid exam data" });
-        return;
-      }
-
-      const { title, vocabularies, isActive } = { ...parsed.data, isActive: req.body.isActive ?? false };
+      const { title, vocabularies, correctText, isActive, examType } = req.body;
       
-      // Parse vocabularies from newline-separated string with format: Word | POS | Meaning
-      const vocabLines = vocabularies
-        .split("\n")
-        .map((line: string) => line.trim())
-        .filter((line: string) => line.length > 0);
-
-      if (vocabLines.length === 0) {
-        res.status(400).json({ message: "At least one vocabulary entry is required" });
+      if (!title || typeof title !== "string" || !title.trim()) {
+        res.status(400).json({ message: "Title is required" });
         return;
       }
 
-      // Parse each line into word, pos, meaning
-      const parsedVocabs: { word: string; pos: string; meaning: string }[] = [];
-      for (let i = 0; i < vocabLines.length; i++) {
-        const parts = vocabLines[i].split("|").map((p: string) => p.trim());
-        if (parts.length !== 3) {
-          res.status(400).json({ 
-            message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning` 
-          });
-          return;
-        }
-        const [word, pos, meaning] = parts;
-        if (!word || !pos || !meaning) {
-          res.status(400).json({ 
-            message: `Line ${i + 1} has empty fields. All three parts are required.` 
-          });
-          return;
-        }
-        parsedVocabs.push({ word, pos, meaning });
-      }
+      const type = examType === "text" ? "text" : "vocab";
 
       // If setting as active, deactivate all others first
       if (isActive) {
         await storage.deactivateAllExams();
       }
 
-      // Create exam
-      const exam = await storage.createExam({ title, isActive });
+      if (type === "text") {
+        // Text Dictation exam
+        if (!correctText || typeof correctText !== "string" || !correctText.trim()) {
+          res.status(400).json({ message: "Correct text is required for text dictation" });
+          return;
+        }
 
-      // Create questions
-      const questionData = parsedVocabs.map((vocab, index) => ({
-        examId: exam.id,
-        wordOrder: index + 1,
-        correctWord: vocab.word,
-        correctPos: vocab.pos,
-        correctMeaning: vocab.meaning,
-      }));
-      await storage.createQuestions(questionData);
+        const exam = await storage.createExam({ 
+          title: title.trim(), 
+          isActive: isActive ?? false,
+          examType: "text",
+          correctText: correctText.trim()
+        });
+        res.json(exam);
+      } else {
+        // Vocab Quiz exam
+        if (!vocabularies || typeof vocabularies !== "string") {
+          res.status(400).json({ message: "Vocabularies are required" });
+          return;
+        }
 
-      res.json(exam);
+        const vocabLines = vocabularies
+          .split("\n")
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0);
+
+        if (vocabLines.length === 0) {
+          res.status(400).json({ message: "At least one vocabulary entry is required" });
+          return;
+        }
+
+        // Parse each line into word, pos, meaning
+        const parsedVocabs: { word: string; pos: string; meaning: string }[] = [];
+        for (let i = 0; i < vocabLines.length; i++) {
+          const parts = vocabLines[i].split("|").map((p: string) => p.trim());
+          if (parts.length !== 3) {
+            res.status(400).json({ 
+              message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning` 
+            });
+            return;
+          }
+          const [word, pos, meaning] = parts;
+          if (!word || !pos || !meaning) {
+            res.status(400).json({ 
+              message: `Line ${i + 1} has empty fields. All three parts are required.` 
+            });
+            return;
+          }
+          parsedVocabs.push({ word, pos, meaning });
+        }
+
+        // Create exam
+        const exam = await storage.createExam({ 
+          title: title.trim(), 
+          isActive: isActive ?? false,
+          examType: "vocab"
+        });
+
+        // Create questions
+        const questionData = parsedVocabs.map((vocab, index) => ({
+          examId: exam.id,
+          wordOrder: index + 1,
+          correctWord: vocab.word,
+          correctPos: vocab.pos,
+          correctMeaning: vocab.meaning,
+        }));
+        await storage.createQuestions(questionData);
+
+        res.json(exam);
+      }
     } catch (error) {
       console.error("Create exam error:", error);
       res.status(500).json({ message: "Failed to create exam" });
@@ -150,9 +176,16 @@ export async function registerRoutes(
   app.patch("/api/exams/:id", async (req, res) => {
     try {
       const examId = parseInt(req.params.id);
-      const { isActive, title, vocabularies } = req.body;
+      const { isActive, title, vocabularies, correctText, examType } = req.body;
 
-      if (typeof isActive === "boolean" && !title && !vocabularies) {
+      // Get current exam to check its type
+      const currentExam = await storage.getExamById(examId);
+      if (!currentExam) {
+        res.status(404).json({ message: "Exam not found" });
+        return;
+      }
+
+      if (typeof isActive === "boolean" && !title && !vocabularies && !correctText) {
         // Simple toggle
         if (isActive) {
           await storage.deactivateAllExams();
@@ -162,7 +195,21 @@ export async function registerRoutes(
         return;
       }
 
-      // Full update
+      // Full update for Text Dictation
+      if (currentExam.examType === "text" && title && correctText) {
+        if (isActive) {
+          await storage.deactivateAllExams();
+        }
+        const updated = await storage.updateExam(examId, { 
+          title, 
+          isActive: isActive ?? false,
+          correctText 
+        });
+        res.json(updated);
+        return;
+      }
+
+      // Full update for Vocab Quiz
       if (title && vocabularies) {
         const vocabLines = vocabularies
           .split("\n")

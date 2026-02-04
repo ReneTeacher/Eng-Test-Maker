@@ -10,16 +10,20 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Save, FileText, ListOrdered, Eye, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, FileText, ListOrdered, Eye, Loader2, BookOpen, List } from "lucide-react";
 import type { ExamWithQuestions } from "@shared/schema";
+
+type ExamType = "vocab" | "text";
 
 export default function AdminCreateExam() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const [examType, setExamType] = useState<ExamType>("vocab");
   const [title, setTitle] = useState("");
   const [vocabularies, setVocabularies] = useState("");
+  const [correctText, setCorrectText] = useState("");
   const [isActive, setIsActive] = useState(true);
 
   const { data: existingExam, isLoading: isExamLoading } = useQuery<ExamWithQuestions>({
@@ -31,12 +35,17 @@ export default function AdminCreateExam() {
     if (existingExam) {
       setTitle(existingExam.title);
       setIsActive(existingExam.isActive);
+      setExamType((existingExam.examType as ExamType) || "vocab");
       
-      const vocabString = existingExam.questions
-        .sort((a, b) => a.wordOrder - b.wordOrder)
-        .map(q => `${q.correctWord} | ${q.correctPos} | ${q.correctMeaning}`)
-        .join("\n");
-      setVocabularies(vocabString);
+      if (existingExam.examType === "text" && existingExam.correctText) {
+        setCorrectText(existingExam.correctText);
+      } else {
+        const vocabString = existingExam.questions
+          .sort((a, b) => a.wordOrder - b.wordOrder)
+          .map(q => `${q.correctWord} | ${q.correctPos} | ${q.correctMeaning}`)
+          .join("\n");
+        setVocabularies(vocabString);
+      }
     }
   }, [existingExam]);
 
@@ -48,7 +57,13 @@ export default function AdminCreateExam() {
   }, [navigate]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: { title: string; vocabularies: string; isActive: boolean }) => {
+    mutationFn: async (data: { 
+      title: string; 
+      examType: ExamType;
+      vocabularies?: string; 
+      correctText?: string;
+      isActive: boolean 
+    }) => {
       const url = isEdit ? `/api/exams/${id}` : "/api/exams";
       const method = isEdit ? "PATCH" : "POST";
       const response = await apiRequest(method, url, data);
@@ -81,13 +96,35 @@ export default function AdminCreateExam() {
       toast({ title: "Please enter a title", variant: "destructive" });
       return;
     }
-    if (!vocabularies.trim()) {
-      toast({ title: "Please enter at least one vocabulary entry", variant: "destructive" });
-      return;
+    
+    if (examType === "vocab") {
+      if (!vocabularies.trim()) {
+        toast({ title: "Please enter at least one vocabulary entry", variant: "destructive" });
+        return;
+      }
+      saveMutation.mutate({ 
+        title: title.trim(), 
+        examType,
+        vocabularies: vocabularies.trim(), 
+        isActive 
+      });
+    } else {
+      if (!correctText.trim()) {
+        toast({ title: "Please enter the correct text for dictation", variant: "destructive" });
+        return;
+      }
+      saveMutation.mutate({ 
+        title: title.trim(), 
+        examType,
+        correctText: correctText.trim(), 
+        isActive 
+      });
     }
-
-    saveMutation.mutate({ title: title.trim(), vocabularies: vocabularies.trim(), isActive });
   };
+  
+  const isFormValid = examType === "vocab" 
+    ? (title.trim() && vocabularies.trim())
+    : (title.trim() && correctText.trim());
 
   const vocabList = vocabularies
     .split("\n")
@@ -127,14 +164,73 @@ export default function AdminCreateExam() {
 
       <main className="max-w-3xl mx-auto px-4 py-6">
         <form onSubmit={handleSubmit} className="space-y-6">
+          {!isEdit && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Select Exam Type</CardTitle>
+                <CardDescription>
+                  Choose the type of test you want to create
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setExamType("vocab")}
+                    data-testid="button-type-vocab"
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      examType === "vocab"
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`p-2 rounded-md ${examType === "vocab" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                        <List className="w-5 h-5" />
+                      </div>
+                      <span className="font-semibold">Vocab Quiz</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      單字測驗：Word | POS | Meaning 格式，每部分獨立評分
+                    </p>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setExamType("text")}
+                    data-testid="button-type-text"
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      examType === "text"
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`p-2 rounded-md ${examType === "text" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                        <BookOpen className="w-5 h-5" />
+                      </div>
+                      <span className="font-semibold">Text Dictation</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      段落默書：AI 智能評分整段文字，檢查拼字、標點、大小寫
+                    </p>
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <FileText className="w-5 h-5" />
-                Exam Details
+                {examType === "vocab" ? "Vocabulary Quiz Details" : "Text Dictation Details"}
               </CardTitle>
               <CardDescription>
-                Enter the exam title and vocabulary list in format: Word | POS | Meaning
+                {examType === "vocab" 
+                  ? "Enter the exam title and vocabulary list in format: Word | POS | Meaning"
+                  : "Enter the exam title and the correct text for AI-powered grading"
+                }
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -148,35 +244,65 @@ export default function AdminCreateExam() {
                   </div>
                 </div>
               )}
+              
+              {isEdit && (
+                <div className="p-3 bg-muted rounded-md mb-2">
+                  <span className="text-sm text-muted-foreground">Exam Type: </span>
+                  <Badge variant="secondary">
+                    {examType === "vocab" ? "Vocab Quiz" : "Text Dictation"}
+                  </Badge>
+                </div>
+              )}
+              
               <div className="space-y-2">
                 <Label htmlFor="title">Exam Title</Label>
                 <Input
                   id="title"
                   data-testid="input-exam-title"
-                  placeholder="e.g., Week 1 Dictation"
+                  placeholder={examType === "vocab" ? "e.g., Week 1 Vocabulary Test" : "e.g., Week 1 Dictation"}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="h-11"
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="vocabularies" className="flex items-center gap-2">
-                  <ListOrdered className="w-4 h-4 text-muted-foreground" />
-                  Vocabulary List
-                </Label>
-                <Textarea
-                  id="vocabularies"
-                  data-testid="textarea-vocabularies"
-                  placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | noun | 蘋果&#10;Run | verb | 跑, 跑步&#10;Quick | adjective | 快的/迅速的"
-                  value={vocabularies}
-                  onChange={(e) => setVocabularies(e.target.value)}
-                  className="min-h-[200px] font-mono text-sm"
-                />
-                <p className="text-sm text-muted-foreground">
-                  Format: Word | Part of Speech | Chinese Meaning. Use '/' or ',' for multiple acceptable answers. Part of Speech should be the full name (e.g., noun, verb).
-                </p>
-              </div>
+              {examType === "vocab" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="vocabularies" className="flex items-center gap-2">
+                    <ListOrdered className="w-4 h-4 text-muted-foreground" />
+                    Vocabulary List
+                  </Label>
+                  <Textarea
+                    id="vocabularies"
+                    data-testid="textarea-vocabularies"
+                    placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | noun | 蘋果&#10;Run | verb | 跑, 跑步&#10;Quick | adjective | 快的/迅速的"
+                    value={vocabularies}
+                    onChange={(e) => setVocabularies(e.target.value)}
+                    className="min-h-[200px] font-mono text-sm"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Format: Word | Part of Speech | Chinese Meaning. Use '/' or ',' for multiple acceptable answers. Part of Speech should be the full name (e.g., noun, verb).
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="correctText" className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-muted-foreground" />
+                    Correct Text
+                  </Label>
+                  <Textarea
+                    id="correctText"
+                    data-testid="textarea-correct-text"
+                    placeholder="Enter the correct text that students should transcribe...&#10;&#10;Example:&#10;The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet."
+                    value={correctText}
+                    onChange={(e) => setCorrectText(e.target.value)}
+                    className="min-h-[200px] text-sm"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    AI will grade based on: Spelling (50pts), Punctuation (25pts), Capitalization (15pts), Word omission/addition (10pts)
+                  </p>
+                </div>
+              )}
 
               <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
                 <div>
@@ -195,7 +321,7 @@ export default function AdminCreateExam() {
             </CardContent>
           </Card>
 
-          {vocabList.length > 0 && (
+          {examType === "vocab" && vocabList.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
@@ -226,6 +352,22 @@ export default function AdminCreateExam() {
               </CardContent>
             </Card>
           )}
+          
+          {examType === "text" && correctText.trim() && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  Text Preview ({correctText.trim().split(/\s+/).length} words)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="p-4 bg-muted/50 rounded-md">
+                  <p className="text-sm whitespace-pre-wrap">{correctText}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="flex gap-3">
             <Link href="/admin/dashboard" className="flex-1">
@@ -241,7 +383,7 @@ export default function AdminCreateExam() {
             <Button 
               type="submit" 
               className="flex-1"
-              disabled={saveMutation.isPending || !title.trim() || !vocabularies.trim()}
+              disabled={saveMutation.isPending || !isFormValid}
               data-testid="button-save-exam"
             >
               {saveMutation.isPending ? (
