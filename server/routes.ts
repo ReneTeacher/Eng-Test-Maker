@@ -6,6 +6,29 @@ import ExcelJS from "exceljs";
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
+// Helper function to normalize Chinese text for comparison
+function normalizeChinese(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, '') // Remove all whitespace
+    .replace(/，/g, ',') // Full-width comma to half-width
+    .replace(/。/g, '.') // Full-width period to half-width
+    .replace(/！/g, '!') // Full-width exclamation
+    .replace(/？/g, '?') // Full-width question mark
+    .replace(/：/g, ':') // Full-width colon
+    .replace(/；/g, ';') // Full-width semicolon
+    .replace(/（/g, '(') // Full-width parentheses
+    .replace(/）/g, ')')
+    .replace(/「/g, '"') // Chinese quotation marks
+    .replace(/」/g, '"')
+    .replace(/『/g, "'")
+    .replace(/』/g, "'")
+    .replace(/《/g, '<')
+    .replace(/》/g, '>')
+    .replace(/【/g, '[')
+    .replace(/】/g, ']');
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -172,7 +195,7 @@ export async function registerRoutes(
         }));
         await storage.createQuestions(questionData);
 
-        // RE-CALCULATE SCORES for all submissions of this exam
+        // RE-CALCULATE SCORES for all submissions of this exam using weighted scoring
         const submissions = await storage.getSubmissionsByExamId(examId);
         const questions = await storage.getQuestionsByExamId(examId);
 
@@ -185,20 +208,34 @@ export async function registerRoutes(
             if (question) {
               const studentWord = answer.studentWord.trim().toLowerCase();
               const studentPos = answer.studentPos.trim().toLowerCase();
-              const studentMeaning = answer.studentMeaning.trim();
+              const studentMeaning = normalizeChinese(answer.studentMeaning);
 
-              const correctWords = question.correctWord.split(/[,/]/).map(w => w.trim().toLowerCase());
-              const correctPosList = question.correctPos.split(/[,/]/).map(p => p.trim().toLowerCase());
-              const correctMeanings = question.correctMeaning.split(/[,/]/).map(m => m.trim());
+              const correctWords = question.correctWord.split(/[,\/]/).map(w => w.trim().toLowerCase());
+              const correctPosList = question.correctPos.split(/[,\/]/).map(p => p.trim().toLowerCase());
+              const correctMeanings = question.correctMeaning.split(/[,\/]/).map(m => normalizeChinese(m));
 
-              const isCorrect = correctWords.includes(studentWord) && 
-                               correctPosList.includes(studentPos) && 
-                               correctMeanings.includes(studentMeaning);
+              const wordCorrect = correctWords.includes(studentWord);
+              const posCorrect = correctPosList.includes(studentPos);
+              const meaningCorrect = correctMeanings.includes(studentMeaning);
               
-              if (isCorrect) newTotalScore++;
+              // Calculate earned score based on weighted scoring
+              let earnedScore = 0;
+              if (wordCorrect) earnedScore += question.wordScore;
+              if (posCorrect) earnedScore += question.posScore;
+              if (meaningCorrect) earnedScore += question.meaningScore;
               
-              // Update individual answer correctness
-              await storage.updateAnswerDetail(answer.id, { isCorrect });
+              newTotalScore += earnedScore;
+              
+              const isCorrect = wordCorrect && posCorrect && meaningCorrect;
+              
+              // Update individual answer correctness with all fields
+              await storage.updateAnswerDetail(answer.id, { 
+                isCorrect,
+                wordCorrect,
+                posCorrect,
+                meaningCorrect,
+                earnedScore,
+              });
             }
           }
 
@@ -267,16 +304,20 @@ export async function registerRoutes(
       // Get exam questions to compare answers
       const questions = await storage.getQuestionsByExamId(examId);
       
-      // Calculate score: ALL 3 parts must match
+      // Calculate score with weighted scoring per part
       // - English word and POS: case-insensitive
-      // - Chinese meaning: strict match (exact)
+      // - Chinese meaning: normalized comparison
       let totalScore = 0;
       const answerDetailsList: { 
         questionId: number; 
         studentWord: string;
         studentPos: string;
         studentMeaning: string;
-        isCorrect: boolean 
+        isCorrect: boolean;
+        wordCorrect: boolean;
+        posCorrect: boolean;
+        meaningCorrect: boolean;
+        earnedScore: number;
       }[] = [];
 
       for (const answer of answers) {
@@ -284,19 +325,26 @@ export async function registerRoutes(
         if (question) {
           const studentWord = answer.studentWord.trim().toLowerCase();
           const studentPos = answer.studentPos.trim().toLowerCase();
-          const studentMeaning = answer.studentMeaning.trim();
+          const studentMeaning = normalizeChinese(answer.studentMeaning);
 
           // Split correct answers by comma or slash
-          const correctWords = question.correctWord.split(/[,/]/).map(w => w.trim().toLowerCase());
-          const correctPosList = question.correctPos.split(/[,/]/).map(p => p.trim().toLowerCase());
-          const correctMeanings = question.correctMeaning.split(/[,/]/).map(m => m.trim());
+          const correctWords = question.correctWord.split(/[,\/]/).map(w => w.trim().toLowerCase());
+          const correctPosList = question.correctPos.split(/[,\/]/).map(p => p.trim().toLowerCase());
+          const correctMeanings = question.correctMeaning.split(/[,\/]/).map(m => normalizeChinese(m));
 
-          const wordMatch = correctWords.includes(studentWord);
-          const posMatch = correctPosList.includes(studentPos);
-          const meaningMatch = correctMeanings.includes(studentMeaning);
+          const wordCorrect = correctWords.includes(studentWord);
+          const posCorrect = correctPosList.includes(studentPos);
+          const meaningCorrect = correctMeanings.includes(studentMeaning);
           
-          const isCorrect = wordMatch && posMatch && meaningMatch;
-          if (isCorrect) totalScore++;
+          // Calculate earned score based on weighted scoring
+          let earnedScore = 0;
+          if (wordCorrect) earnedScore += question.wordScore;
+          if (posCorrect) earnedScore += question.posScore;
+          if (meaningCorrect) earnedScore += question.meaningScore;
+          
+          totalScore += earnedScore;
+          
+          const isCorrect = wordCorrect && posCorrect && meaningCorrect;
           
           answerDetailsList.push({
             questionId: answer.questionId,
@@ -304,6 +352,10 @@ export async function registerRoutes(
             studentPos: answer.studentPos,
             studentMeaning: answer.studentMeaning,
             isCorrect,
+            wordCorrect,
+            posCorrect,
+            meaningCorrect,
+            earnedScore,
           });
         }
       }
@@ -318,7 +370,7 @@ export async function registerRoutes(
         totalScore,
       });
 
-      // Create answer details
+      // Create answer details with individual part scores
       await storage.createAnswerDetails(
         answerDetailsList.map(d => ({
           submissionId: submission.id,
@@ -327,11 +379,19 @@ export async function registerRoutes(
           studentPos: d.studentPos,
           studentMeaning: d.studentMeaning,
           isCorrect: d.isCorrect,
+          wordCorrect: d.wordCorrect,
+          posCorrect: d.posCorrect,
+          meaningCorrect: d.meaningCorrect,
+          earnedScore: d.earnedScore,
         }))
       );
 
+      // Calculate max possible score for display
+      const maxScore = questions.reduce((sum, q) => sum + q.wordScore + q.posScore + q.meaningScore, 0);
+
       res.json({ 
         totalScore, 
+        maxScore,
         totalQuestions: questions.length,
         studentName 
       });
