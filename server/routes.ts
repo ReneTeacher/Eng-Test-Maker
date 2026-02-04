@@ -3,6 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { examSubmissionSchema, createExamSchema } from "@shared/schema";
 import ExcelJS from "exceljs";
+import OpenAI from "openai";
+
+// Poe API client for AI scoring
+const poeClient = new OpenAI({
+  apiKey: process.env.POE_API_KEY,
+  baseURL: "https://api.poe.com/bot/v1",
+});
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -398,6 +405,104 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Submission error:", error);
       res.status(500).json({ message: "Failed to submit answers" });
+    }
+  });
+
+  // Submit Text Dictation (AI-scored)
+  app.post("/api/text-submissions", async (req, res) => {
+    try {
+      const { examId, studentName, studentNumber, originalClass, mixedClass, studentText } = req.body;
+      
+      if (!examId || !studentName || !studentNumber || !originalClass || !mixedClass || !studentText) {
+        res.status(400).json({ message: "Missing required fields" });
+        return;
+      }
+
+      // Get the exam to find the correct text
+      const exam = await storage.getExamById(examId);
+      if (!exam || exam.examType !== "text") {
+        res.status(400).json({ message: "Invalid exam or not a text dictation exam" });
+        return;
+      }
+
+      if (!exam.correctText) {
+        res.status(400).json({ message: "Exam has no correct text configured" });
+        return;
+      }
+
+      // Use AI to score the text dictation
+      let totalScore = 0;
+      let feedback = "";
+
+      try {
+        const prompt = `You are a strict English dictation grading assistant. Compare the student's text with the correct text and give a score out of 100.
+
+CORRECT TEXT:
+${exam.correctText}
+
+STUDENT'S TEXT:
+${studentText}
+
+Grading criteria:
+1. Spelling accuracy (50 points): Deduct 2 points for each spelling mistake
+2. Punctuation accuracy (25 points): Deduct 1 point for each punctuation error
+3. Capitalization accuracy (15 points): Deduct 1 point for each capitalization error  
+4. Word omission/addition (10 points): Deduct 2 points for each missing or extra word
+
+Respond in this exact JSON format only, no other text:
+{"score": <number 0-100>, "feedback": "<brief feedback in Chinese about main errors>"}`;
+
+        const response = await poeClient.chat.completions.create({
+          model: "Gemini-3-Flash",
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 500,
+        });
+
+        const content = response.choices[0]?.message?.content || "";
+        
+        // Parse JSON response
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          totalScore = Math.max(0, Math.min(100, parsed.score || 0));
+          feedback = parsed.feedback || "";
+        }
+      } catch (aiError) {
+        console.error("AI scoring error:", aiError);
+        // Fallback: simple character-by-character comparison
+        const correctNorm = exam.correctText.toLowerCase().replace(/\s+/g, ' ').trim();
+        const studentNorm = studentText.toLowerCase().replace(/\s+/g, ' ').trim();
+        
+        const maxLen = Math.max(correctNorm.length, studentNorm.length);
+        let matches = 0;
+        for (let i = 0; i < Math.min(correctNorm.length, studentNorm.length); i++) {
+          if (correctNorm[i] === studentNorm[i]) matches++;
+        }
+        totalScore = Math.round((matches / maxLen) * 100);
+        feedback = "AI評分暫時無法使用，使用基本比對評分";
+      }
+
+      // Save the submission
+      const submission = await storage.createTextSubmission({
+        examId,
+        studentName,
+        studentNumber,
+        originalClass,
+        mixedClass,
+        studentText,
+        totalScore,
+        feedback,
+      });
+
+      res.json({
+        totalScore,
+        maxScore: 100,
+        feedback,
+        studentName,
+      });
+    } catch (error) {
+      console.error("Text submission error:", error);
+      res.status(500).json({ message: "Failed to submit text dictation" });
     }
   });
 

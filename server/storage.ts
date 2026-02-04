@@ -1,6 +1,6 @@
 import { 
-  exams, questions, studentSubmissions, answerDetails,
-  type Exam, type Question, type StudentSubmission, type AnswerDetail,
+  exams, questions, studentSubmissions, answerDetails, textSubmissions,
+  type Exam, type Question, type StudentSubmission, type AnswerDetail, type TextSubmission,
   type InsertExam, type InsertQuestion, type InsertSubmission, type InsertAnswerDetail,
   type ExamWithQuestions
 } from "@shared/schema";
@@ -33,6 +33,19 @@ export interface IStorage {
   getAnswerDetailsBySubmissionId(submissionId: number): Promise<AnswerDetail[]>;
   getAnswerDetailsByExamId(examId: number): Promise<(AnswerDetail & { submissionId: number })[]>;
   updateAnswerDetail(id: number, data: Partial<AnswerDetail>): Promise<void>;
+
+  // Text Submissions
+  createTextSubmission(data: {
+    examId: number;
+    studentName: string;
+    studentNumber: number;
+    originalClass: string;
+    mixedClass: string;
+    studentText: string;
+    totalScore: number;
+    feedback?: string;
+  }): Promise<TextSubmission>;
+  getTextSubmissionsByExamId(examId: number): Promise<TextSubmission[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -138,6 +151,29 @@ export class DatabaseStorage implements IStorage {
 
   async updateAnswerDetail(id: number, data: Partial<AnswerDetail>): Promise<void> {
     await db.update(answerDetails).set(data).where(eq(answerDetails.id, id));
+  }
+
+  // Text Submissions
+  async createTextSubmission(data: {
+    examId: number;
+    studentName: string;
+    studentNumber: number;
+    originalClass: string;
+    mixedClass: string;
+    studentText: string;
+    totalScore: number;
+    feedback?: string;
+  }): Promise<TextSubmission> {
+    const [created] = await db.insert(textSubmissions).values(data).returning();
+    return created;
+  }
+
+  async getTextSubmissionsByExamId(examId: number): Promise<TextSubmission[]> {
+    return db
+      .select()
+      .from(textSubmissions)
+      .where(eq(textSubmissions.examId, examId))
+      .orderBy(desc(textSubmissions.submittedAt));
   }
 }
 
