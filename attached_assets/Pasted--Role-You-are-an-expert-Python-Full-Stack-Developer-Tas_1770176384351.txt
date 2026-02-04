@@ -1,0 +1,37 @@
+**Role:** You are an expert Python Full Stack Developer.
+**Task:** UPDATE and REFACTOR the existing "English Dictation App". We need to upgrade the exam format from simple words to detailed vocabulary entries.
+
+**1. Data Structure Changes (CRITICAL):**
+* **Question Table:** Needs to store 3 distinct parts for the correct answer:
+    1. `correct_word` (String, e.g., "Apple")
+    2. `correct_pos` (String, e.g., "n.")
+    3. `correct_meaning` (String, e.g., "蘋果")
+* **AnswerDetail Table:** Needs to store what the student typed for ALL 3 parts:
+    1. `student_word`
+    2. `student_pos`
+    3. `student_meaning`
+    * Also store `is_correct` (Boolean) - true only if ALL 3 parts match (case-insensitive for English, strict for Chinese).
+
+**2. Teacher Admin Features (`/admin`):**
+* **Create Exam Input:** Change the input logic.
+    * Instruction to teacher: "Enter one vocabulary per line in this format: Word | POS | Meaning".
+    * Example input:
+      `Apple | n. | 蘋果`
+      `Run | v. | 跑`
+    * **Backend Logic:** You must split each line by the `|` delimiter to save into the 3 separate database columns.
+
+**3. Student Interface Features (`/`):**
+* **Exam UI Layout:** For each question (Loop index `i`), display a "Card" containing **3 separate Input Fields**:
+    * **Label 1:** "Vocab {i} (English)" -> Input field for the word.
+    * **Label 2:** "Vocab {i} Part of Speech" -> Input field for POS.
+    * **Label 3:** "Vocab {i} Chinese Meaning" -> Input field for Meaning.
+* **Anti-Cheating & Security (STRICT):**
+    * **Input Attributes:** ALL 3 input fields must have: `autocomplete="off"`, `autocorrect="off"`, `autocapitalize="off"`, `spellcheck="false"`, and `onpaste="return false;"` (prevent pasting).
+    * **Visibility Detection:** Use JavaScript (`document.addEventListener('visibilitychange')`). If the student switches tabs or leaves the browser app:
+        1. Show a browser alert: "Warning: Leaving the exam screen is recorded."
+        2. (Optional) Log this event to the server console.
+
+**4. Export Feature:**
+* Update the Excel export to include 3 columns for Student Answers vs. 3 columns for Correct Answers for each question.
+
+**5. Tech Stack:** Keep using Flask, SQLite, TailwindCSS.
