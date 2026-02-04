@@ -16,7 +16,7 @@ export default function AdminCreateExam() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [title, setTitle] = useState("");
-  const [words, setWords] = useState("");
+  const [vocabularies, setVocabularies] = useState("");
   const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function AdminCreateExam() {
   }, [navigate]);
 
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; words: string; isActive: boolean }) => {
+    mutationFn: async (data: { title: string; vocabularies: string; isActive: boolean }) => {
       const response = await apiRequest("POST", "/api/exams", data);
       if (!response.ok) {
         const error = await response.json();
@@ -56,18 +56,25 @@ export default function AdminCreateExam() {
       toast({ title: "Please enter a title", variant: "destructive" });
       return;
     }
-    if (!words.trim()) {
-      toast({ title: "Please enter at least one word", variant: "destructive" });
+    if (!vocabularies.trim()) {
+      toast({ title: "Please enter at least one vocabulary entry", variant: "destructive" });
       return;
     }
 
-    createMutation.mutate({ title: title.trim(), words: words.trim(), isActive });
+    createMutation.mutate({ title: title.trim(), vocabularies: vocabularies.trim(), isActive });
   };
 
-  const wordList = words
+  const vocabList = vocabularies
     .split("\n")
-    .map(w => w.trim())
-    .filter(w => w.length > 0);
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => {
+      const parts = line.split("|").map(p => p.trim());
+      if (parts.length === 3) {
+        return { word: parts[0], pos: parts[1], meaning: parts[2], valid: true };
+      }
+      return { word: line, pos: "", meaning: "", valid: false };
+    });
 
   return (
     <div className="min-h-screen bg-background">
@@ -94,7 +101,7 @@ export default function AdminCreateExam() {
                 Exam Details
               </CardTitle>
               <CardDescription>
-                Enter the exam title and the list of words or sentences
+                Enter the exam title and vocabulary list in format: Word | POS | Meaning
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -111,20 +118,20 @@ export default function AdminCreateExam() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="words" className="flex items-center gap-2">
+                <Label htmlFor="vocabularies" className="flex items-center gap-2">
                   <ListOrdered className="w-4 h-4 text-muted-foreground" />
-                  Words / Sentences
+                  Vocabulary List
                 </Label>
                 <Textarea
-                  id="words"
-                  data-testid="textarea-words"
-                  placeholder="Enter each word or sentence on a new line:&#10;apple&#10;banana&#10;The quick brown fox"
-                  value={words}
-                  onChange={(e) => setWords(e.target.value)}
+                  id="vocabularies"
+                  data-testid="textarea-vocabularies"
+                  placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | n. | 蘋果&#10;Run | v. | 跑&#10;Beautiful | adj. | 美麗的"
+                  value={vocabularies}
+                  onChange={(e) => setVocabularies(e.target.value)}
                   className="min-h-[200px] font-mono text-sm"
                 />
                 <p className="text-sm text-muted-foreground">
-                  Each line will become one question. Students must spell it exactly right (case-insensitive).
+                  Format: Word | Part of Speech | Chinese Meaning. Each line is one question. Students must answer all 3 parts correctly.
                 </p>
               </div>
 
@@ -145,20 +152,32 @@ export default function AdminCreateExam() {
             </CardContent>
           </Card>
 
-          {wordList.length > 0 && (
+          {vocabList.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Eye className="w-5 h-5" />
-                  Preview ({wordList.length} {wordList.length === 1 ? "word" : "words"})
+                  Preview ({vocabList.length} {vocabList.length === 1 ? "vocabulary" : "vocabularies"})
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-2">
-                  {wordList.map((word, i) => (
-                    <Badge key={i} variant="secondary" className="font-mono text-sm">
-                      {i + 1}. {word}
-                    </Badge>
+                <div className="space-y-2">
+                  {vocabList.map((vocab, i) => (
+                    <div 
+                      key={i} 
+                      className={`flex items-center gap-3 p-2 rounded-md ${vocab.valid ? 'bg-muted/50' : 'bg-destructive/10 border border-destructive/30'}`}
+                    >
+                      <span className="font-semibold text-sm w-6">{i + 1}.</span>
+                      {vocab.valid ? (
+                        <>
+                          <Badge variant="secondary" className="font-mono">{vocab.word}</Badge>
+                          <Badge variant="outline" className="font-mono">{vocab.pos}</Badge>
+                          <span className="text-sm text-muted-foreground">{vocab.meaning}</span>
+                        </>
+                      ) : (
+                        <span className="text-sm text-destructive">Invalid format: {vocab.word}</span>
+                      )}
+                    </div>
                   ))}
                 </div>
               </CardContent>
@@ -179,7 +198,7 @@ export default function AdminCreateExam() {
             <Button 
               type="submit" 
               className="flex-1"
-              disabled={createMutation.isPending || !title.trim() || !words.trim()}
+              disabled={createMutation.isPending || !title.trim() || !vocabularies.trim()}
               data-testid="button-save-exam"
             >
               {createMutation.isPending ? (

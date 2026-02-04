@@ -16,27 +16,29 @@ export async function seedDatabase() {
     isActive: true,
   });
 
-  // Create sample questions (common English words)
-  const words = [
-    "apple",
-    "beautiful",
-    "challenge",
-    "development",
-    "environment",
-    "friendship",
-    "government",
-    "happiness",
-    "imagination",
-    "knowledge"
+  // Create sample vocabulary questions with word, POS, and meaning
+  const vocabularies = [
+    { word: "Apple", pos: "n.", meaning: "蘋果" },
+    { word: "Beautiful", pos: "adj.", meaning: "美麗的" },
+    { word: "Challenge", pos: "n.", meaning: "挑戰" },
+    { word: "Development", pos: "n.", meaning: "發展" },
+    { word: "Environment", pos: "n.", meaning: "環境" },
+    { word: "Friendship", pos: "n.", meaning: "友誼" },
+    { word: "Government", pos: "n.", meaning: "政府" },
+    { word: "Happiness", pos: "n.", meaning: "幸福" },
+    { word: "Imagination", pos: "n.", meaning: "想像力" },
+    { word: "Knowledge", pos: "n.", meaning: "知識" }
   ];
 
-  const questionData = words.map((word, index) => ({
+  const questionData = vocabularies.map((vocab, index) => ({
     examId: exam.id,
     wordOrder: index + 1,
-    correctAnswer: word,
+    correctWord: vocab.word,
+    correctPos: vocab.pos,
+    correctMeaning: vocab.meaning,
   }));
 
   await storage.createQuestions(questionData);
 
-  console.log(`Created exam "${exam.title}" with ${words.length} words`);
+  console.log(`Created exam "${exam.title}" with ${vocabularies.length} vocabularies`);
 }

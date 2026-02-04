@@ -58,17 +58,37 @@ export async function registerRoutes(
         return;
       }
 
-      const { title, words, isActive } = { ...parsed.data, isActive: req.body.isActive ?? false };
+      const { title, vocabularies, isActive } = { ...parsed.data, isActive: req.body.isActive ?? false };
       
-      // Parse words from newline-separated string
-      const wordList = words
+      // Parse vocabularies from newline-separated string with format: Word | POS | Meaning
+      const vocabLines = vocabularies
         .split("\n")
-        .map((w: string) => w.trim())
-        .filter((w: string) => w.length > 0);
+        .map((line: string) => line.trim())
+        .filter((line: string) => line.length > 0);
 
-      if (wordList.length === 0) {
-        res.status(400).json({ message: "At least one word is required" });
+      if (vocabLines.length === 0) {
+        res.status(400).json({ message: "At least one vocabulary entry is required" });
         return;
+      }
+
+      // Parse each line into word, pos, meaning
+      const parsedVocabs: { word: string; pos: string; meaning: string }[] = [];
+      for (let i = 0; i < vocabLines.length; i++) {
+        const parts = vocabLines[i].split("|").map((p: string) => p.trim());
+        if (parts.length !== 3) {
+          res.status(400).json({ 
+            message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning` 
+          });
+          return;
+        }
+        const [word, pos, meaning] = parts;
+        if (!word || !pos || !meaning) {
+          res.status(400).json({ 
+            message: `Line ${i + 1} has empty fields. All three parts are required.` 
+          });
+          return;
+        }
+        parsedVocabs.push({ word, pos, meaning });
       }
 
       // If setting as active, deactivate all others first
@@ -80,10 +100,12 @@ export async function registerRoutes(
       const exam = await storage.createExam({ title, isActive });
 
       // Create questions
-      const questionData = wordList.map((word: string, index: number) => ({
+      const questionData = parsedVocabs.map((vocab, index) => ({
         examId: exam.id,
         wordOrder: index + 1,
-        correctAnswer: word,
+        correctWord: vocab.word,
+        correctPos: vocab.pos,
+        correctMeaning: vocab.meaning,
       }));
       await storage.createQuestions(questionData);
 
@@ -150,18 +172,33 @@ export async function registerRoutes(
       // Get exam questions to compare answers
       const questions = await storage.getQuestionsByExamId(examId);
       
-      // Calculate score (case-insensitive comparison)
+      // Calculate score: ALL 3 parts must match
+      // - English word and POS: case-insensitive
+      // - Chinese meaning: strict match (exact)
       let totalScore = 0;
-      const answerDetails: { questionId: number; studentAnswer: string; isCorrect: boolean }[] = [];
+      const answerDetailsList: { 
+        questionId: number; 
+        studentWord: string;
+        studentPos: string;
+        studentMeaning: string;
+        isCorrect: boolean 
+      }[] = [];
 
       for (const answer of answers) {
         const question = questions.find(q => q.id === answer.questionId);
         if (question) {
-          const isCorrect = answer.studentAnswer.trim().toLowerCase() === question.correctAnswer.trim().toLowerCase();
+          const wordMatch = answer.studentWord.trim().toLowerCase() === question.correctWord.trim().toLowerCase();
+          const posMatch = answer.studentPos.trim().toLowerCase() === question.correctPos.trim().toLowerCase();
+          const meaningMatch = answer.studentMeaning.trim() === question.correctMeaning.trim();
+          
+          const isCorrect = wordMatch && posMatch && meaningMatch;
           if (isCorrect) totalScore++;
-          answerDetails.push({
+          
+          answerDetailsList.push({
             questionId: answer.questionId,
-            studentAnswer: answer.studentAnswer,
+            studentWord: answer.studentWord,
+            studentPos: answer.studentPos,
+            studentMeaning: answer.studentMeaning,
             isCorrect,
           });
         }
@@ -179,10 +216,12 @@ export async function registerRoutes(
 
       // Create answer details
       await storage.createAnswerDetails(
-        answerDetails.map(d => ({
+        answerDetailsList.map(d => ({
           submissionId: submission.id,
           questionId: d.questionId,
-          studentAnswer: d.studentAnswer,
+          studentWord: d.studentWord,
+          studentPos: d.studentPos,
+          studentMeaning: d.studentMeaning,
           isCorrect: d.isCorrect,
         }))
       );
@@ -231,27 +270,55 @@ export async function registerRoutes(
       // Sort questions once for consistency
       const sortedQuestions = [...questions].sort((a, b) => a.wordOrder - b.wordOrder);
       
-      // Build Excel data
+      // Build Excel data with 6 columns per question:
+      // Student Word, Student POS, Student Meaning, Correct Word, Correct POS, Correct Meaning
+      const questionHeaders: string[] = [];
+      sortedQuestions.forEach((_, i) => {
+        questionHeaders.push(
+          `Q${i + 1}_StudentWord`,
+          `Q${i + 1}_StudentPOS`,
+          `Q${i + 1}_StudentMeaning`,
+          `Q${i + 1}_CorrectWord`,
+          `Q${i + 1}_CorrectPOS`,
+          `Q${i + 1}_CorrectMeaning`,
+          `Q${i + 1}_Correct`
+        );
+      });
+
       const headers = [
         "Name",
         "Student Number",
         "Original Class",
         "Mixed Class",
-        ...sortedQuestions.map((_, i) => `Q${i + 1}_Answer`),
+        ...questionHeaders,
         "Total Score",
         "Timestamp"
       ];
 
       const rows = await Promise.all(submissions.map(async (sub) => {
         const answers = await storage.getAnswerDetailsBySubmissionId(sub.id);
-        const answerMap = new Map(answers.map(a => [a.questionId, a.studentAnswer]));
+        const answerMap = new Map(answers.map(a => [a.questionId, a]));
         
+        const questionData: (string | boolean)[] = [];
+        for (const q of sortedQuestions) {
+          const answer = answerMap.get(q.id);
+          questionData.push(
+            answer?.studentWord || "",
+            answer?.studentPos || "",
+            answer?.studentMeaning || "",
+            q.correctWord,
+            q.correctPos,
+            q.correctMeaning,
+            answer?.isCorrect ? "Yes" : "No"
+          );
+        }
+
         return [
           sub.studentName,
           sub.studentNumber,
           sub.originalClass,
           sub.mixedClass,
-          ...sortedQuestions.map(q => answerMap.get(q.id) || ""),
+          ...questionData,
           sub.totalScore,
           new Date(sub.submittedAt).toLocaleString()
         ];

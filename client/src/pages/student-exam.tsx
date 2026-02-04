@@ -11,10 +11,16 @@ import { apiRequest } from "@/lib/queryClient";
 import { BookOpen, Send, AlertCircle, User, ClipboardList } from "lucide-react";
 import type { ExamWithQuestions, StudentLogin } from "@shared/schema";
 
+interface VocabAnswer {
+  word: string;
+  pos: string;
+  meaning: string;
+}
+
 export default function StudentExam() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [answers, setAnswers] = useState<Record<number, VocabAnswer>>({});
   const [studentInfo, setStudentInfo] = useState<StudentLogin | null>(null);
 
   useEffect(() => {
@@ -30,6 +36,20 @@ export default function StudentExam() {
     }
   }, [navigate]);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        alert("Warning: Leaving the exam screen is recorded.");
+        console.log("[EXAM SECURITY] Tab visibility changed - student may have left the exam screen");
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   const { data: activeExam, isLoading, error } = useQuery<ExamWithQuestions>({
     queryKey: ["/api/exams/active"],
     enabled: !!studentInfo,
@@ -38,7 +58,7 @@ export default function StudentExam() {
   const submitMutation = useMutation({
     mutationFn: async (data: { 
       examId: number; 
-      answers: { questionId: number; studentAnswer: string }[] 
+      answers: { questionId: number; studentWord: string; studentPos: string; studentMeaning: string }[] 
     }) => {
       const response = await apiRequest("POST", "/api/submissions", {
         ...studentInfo,
@@ -61,8 +81,22 @@ export default function StudentExam() {
     },
   });
 
-  const handleAnswerChange = (questionId: number, value: string) => {
-    setAnswers(prev => ({ ...prev, [questionId]: value }));
+  const handleAnswerChange = (questionId: number, field: keyof VocabAnswer, value: string) => {
+    setAnswers(prev => ({
+      ...prev,
+      [questionId]: {
+        ...prev[questionId],
+        word: prev[questionId]?.word || "",
+        pos: prev[questionId]?.pos || "",
+        meaning: prev[questionId]?.meaning || "",
+        [field]: value,
+      }
+    }));
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    return false;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -72,7 +106,9 @@ export default function StudentExam() {
 
     const submissionAnswers = activeExam.questions.map(q => ({
       questionId: q.id,
-      studentAnswer: answers[q.id]?.trim() || "",
+      studentWord: answers[q.id]?.word?.trim() || "",
+      studentPos: answers[q.id]?.pos?.trim() || "",
+      studentMeaning: answers[q.id]?.meaning?.trim() || "",
     }));
 
     submitMutation.mutate({
@@ -143,7 +179,7 @@ export default function StudentExam() {
           </div>
           <h1 className="text-2xl font-bold text-foreground mb-1">{activeExam.title}</h1>
           <p className="text-muted-foreground text-sm">
-            {activeExam.questions.length} {activeExam.questions.length === 1 ? "word" : "words"} to complete
+            {activeExam.questions.length} {activeExam.questions.length === 1 ? "vocabulary" : "vocabularies"} to complete
           </p>
         </div>
 
@@ -168,7 +204,7 @@ export default function StudentExam() {
               Dictation Test
             </CardTitle>
             <CardDescription>
-              Listen carefully and type each word or sentence correctly
+              For each vocabulary, enter the English word, part of speech, and Chinese meaning
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -176,29 +212,73 @@ export default function StudentExam() {
               {activeExam.questions
                 .sort((a, b) => a.wordOrder - b.wordOrder)
                 .map((question, index) => (
-                  <div key={question.id} className="space-y-2">
-                    <Label 
-                      htmlFor={`answer-${question.id}`}
-                      className="text-base font-medium flex items-center gap-2"
-                    >
-                      <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-semibold">
-                        {index + 1}
-                      </span>
-                      Word {index + 1}
-                    </Label>
-                    <Input
-                      id={`answer-${question.id}`}
-                      data-testid={`input-answer-${index + 1}`}
-                      placeholder="Type your answer here"
-                      value={answers[question.id] || ""}
-                      onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      className="h-12 text-base"
-                    />
-                  </div>
+                  <Card key={question.id} className="border-border">
+                    <CardContent className="pt-4 space-y-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary text-sm font-semibold">
+                          {index + 1}
+                        </span>
+                        <span className="font-medium">Vocab {index + 1}</span>
+                      </div>
+                      
+                      <div className="space-y-2">
+                        <Label htmlFor={`word-${question.id}`} className="text-sm">
+                          English Word
+                        </Label>
+                        <Input
+                          id={`word-${question.id}`}
+                          data-testid={`input-word-${index + 1}`}
+                          placeholder="Type the English word"
+                          value={answers[question.id]?.word || ""}
+                          onChange={(e) => handleAnswerChange(question.id, "word", e.target.value)}
+                          onPaste={handlePaste}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          className="h-11"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`pos-${question.id}`} className="text-sm">
+                          Part of Speech
+                        </Label>
+                        <Input
+                          id={`pos-${question.id}`}
+                          data-testid={`input-pos-${index + 1}`}
+                          placeholder="e.g., n. / v. / adj."
+                          value={answers[question.id]?.pos || ""}
+                          onChange={(e) => handleAnswerChange(question.id, "pos", e.target.value)}
+                          onPaste={handlePaste}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          className="h-11"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor={`meaning-${question.id}`} className="text-sm">
+                          Chinese Meaning
+                        </Label>
+                        <Input
+                          id={`meaning-${question.id}`}
+                          data-testid={`input-meaning-${index + 1}`}
+                          placeholder="輸入中文意思"
+                          value={answers[question.id]?.meaning || ""}
+                          onChange={(e) => handleAnswerChange(question.id, "meaning", e.target.value)}
+                          onPaste={handlePaste}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          className="h-11"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
 
               <div className="pt-4">

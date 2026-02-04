@@ -14,7 +14,9 @@ export const questions = pgTable("questions", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   examId: integer("exam_id").notNull().references(() => exams.id, { onDelete: "cascade" }),
   wordOrder: integer("word_order").notNull(),
-  correctAnswer: text("correct_answer").notNull(),
+  correctWord: text("correct_word").notNull(),
+  correctPos: text("correct_pos").notNull(),
+  correctMeaning: text("correct_meaning").notNull(),
 });
 
 export const studentSubmissions = pgTable("student_submissions", {
@@ -32,7 +34,9 @@ export const answerDetails = pgTable("answer_details", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   submissionId: integer("submission_id").notNull().references(() => studentSubmissions.id, { onDelete: "cascade" }),
   questionId: integer("question_id").notNull().references(() => questions.id, { onDelete: "cascade" }),
-  studentAnswer: text("student_answer").notNull(),
+  studentWord: text("student_word").notNull(),
+  studentPos: text("student_pos").notNull(),
+  studentMeaning: text("student_meaning").notNull(),
   isCorrect: boolean("is_correct").notNull(),
 });
 
@@ -73,13 +77,15 @@ export const examSubmissionSchema = z.object({
   mixedClass: z.string(),
   answers: z.array(z.object({
     questionId: z.number(),
-    studentAnswer: z.string(),
+    studentWord: z.string(),
+    studentPos: z.string(),
+    studentMeaning: z.string(),
   })),
 });
 
 export const createExamSchema = z.object({
   title: z.string().min(1, "Title is required"),
-  words: z.string().min(1, "At least one word is required"),
+  vocabularies: z.string().min(1, "At least one vocabulary entry is required"),
 });
 
 export type StudentLogin = z.infer<typeof studentLoginSchema>;
