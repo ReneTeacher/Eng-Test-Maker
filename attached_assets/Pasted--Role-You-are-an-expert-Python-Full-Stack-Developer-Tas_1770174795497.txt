@@ -1,0 +1,33 @@
+**Role:** You are an expert Python Full Stack Developer.
+**Task:** Build a web-based "English Dictation App" for a school classroom using **Python (Flask)** and **SQLite**.
+
+**1. Data Structure (SQLite):**
+* **Exam Table:** `id`, `title` (e.g., "Week 1 Dictation"), `is_active` (boolean), `created_at`.
+* **Question Table:** `id`, `exam_id`, `word_order` (1, 2, 3...), `correct_answer`.
+* **StudentSubmission Table:** `id`, `exam_id`, `student_name`, `student_number` (Integer), `original_class` (String), `mixed_class` (String), `total_score`, `submitted_at`.
+* **AnswerDetail Table:** Links to Submission. Stores what the student typed for each word vs. the correct answer.
+
+**2. Features - Teacher Admin Panel (`/admin`):**
+* **Login:** Simple hardcoded password for now (e.g., "teacher123").
+* **Create Exam:** Allow me to input a Title and a list of words/sentences.
+* **Dashboard:** Show list of students who submitted.
+* **Export:** A button to download a **.xlsx** file using Pandas.
+    * **Excel Columns:** Name, Student Number, Original Class, Mixed Class, Q1_Answer, Q2_Answer... (dynamic based on question count), Total Score, Timestamp.
+
+**3. Features - Student Interface (`/`):**
+* **Login Screen:**
+    * Input: `Name` (Text)
+    * Input: `Student Number` (Dropdown Select). **Range:** 1 to 40.
+    * Input: `Original Class` (Dropdown Select). **Options:** ["J3A", "J3B", "J3C"].
+    * Input: `Mixed Class` (Dropdown Select). **Options:** ["初三英文1班", "初三英文2班", "初三英文3班"].
+* **Exam Screen:**
+    * Fetch the currently `active` exam.
+    * Display input boxes corresponding to the number of questions.
+    * **CRITICAL UI REQUIREMENT:** All input fields must have `autocomplete="off"`, `autocorrect="off"`, `autocapitalize="off"`, and `spellcheck="false"` to prevent iPad cheating.
+* **Submit:**
+    * Calculate score immediately on the backend (Case-insensitive comparison).
+    * Show a simple "Thank you" page.
+
+**4. Tech Stack:**
+* Backend: Flask, SQLAlchemy, Pandas (for Excel export), OpenPyXL.
+* Frontend: HTML5, TailwindCSS (clean, mobile-responsive UI for iPad).
