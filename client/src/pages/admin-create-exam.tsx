@@ -353,21 +353,43 @@ export default function AdminCreateExam() {
             </Card>
           )}
           
-          {examType === "text" && correctText.trim() && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Eye className="w-5 h-5" />
-                  Text Preview ({correctText.trim().split(/\s+/).length} words)
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="p-4 bg-muted/50 rounded-md">
-                  <p className="text-sm whitespace-pre-wrap">{correctText}</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {examType === "text" && correctText.trim() && (() => {
+            const sentences = correctText.trim()
+              .split(/(?<=[.!?。！？])\s*/)
+              .map(s => s.trim())
+              .filter(s => s.length > 0);
+            return (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Eye className="w-5 h-5" />
+                    句子預覽 ({sentences.length} 句)
+                  </CardTitle>
+                  <CardDescription>
+                    按以下順序讀出每句，學生將逐句輸入
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {sentences.map((sentence, i) => (
+                      <div 
+                        key={i} 
+                        className="flex items-start gap-3 p-3 bg-muted/50 rounded-md"
+                      >
+                        <Badge variant="default" className="shrink-0 mt-0.5">
+                          第 {i + 1} 句
+                        </Badge>
+                        <span className="text-sm">{sentence}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-4">
+                    每句 10 分，總分 {sentences.length * 10} 分
+                  </p>
+                </CardContent>
+              </Card>
+            );
+          })()}
 
           <div className="flex gap-3">
             <Link href="/admin/dashboard" className="flex-1">

@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import type { ExamWithQuestions, StudentLogin } from "@shared/schema";
+import type { ExamWithQuestions, StudentLogin, TextSentence } from "@shared/schema";
 
 interface VocabAnswer {
   word: string;
@@ -18,12 +18,26 @@ interface VocabAnswer {
   meaning: string;
 }
 
+interface ExamWithSentences {
+  id: number;
+  title: string;
+  examType: string;
+  isActive: boolean;
+  createdAt: Date;
+  correctText: string | null;
+  sentences: TextSentence[];
+  questions?: never;
+}
+
+type ActiveExam = ExamWithQuestions | ExamWithSentences;
+
 export default function StudentExam() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [answers, setAnswers] = useState<Record<number, VocabAnswer>>({});
   const [textAnswer, setTextAnswer] = useState("");
+  const [sentenceAnswers, setSentenceAnswers] = useState<Record<number, string>>({});
   const [studentInfo, setStudentInfo] = useState<StudentLogin | null>(null);
 
   useEffect(() => {
@@ -53,10 +67,12 @@ export default function StudentExam() {
     };
   }, []);
 
-  const { data: activeExam, isLoading, error } = useQuery<ExamWithQuestions>({
+  const { data: activeExam, isLoading, error } = useQuery<ActiveExam>({
     queryKey: [id ? `/api/exams/${id}` : "/api/exams/active"],
     enabled: !!studentInfo,
   });
+  
+  const hasSentences = activeExam && 'sentences' in activeExam && activeExam.sentences?.length > 0;
 
   const submitMutation = useMutation({
     mutationFn: async (data: { 
@@ -85,11 +101,16 @@ export default function StudentExam() {
   });
 
   const submitTextMutation = useMutation({
-    mutationFn: async (data: { examId: number; studentText: string }) => {
+    mutationFn: async (data: { 
+      examId: number; 
+      studentText?: string;
+      sentenceAnswers?: { sentenceId: number; studentSentence: string }[];
+    }) => {
       const response = await apiRequest("POST", "/api/text-submissions", {
         ...studentInfo,
         examId: data.examId,
-        studentText: data.studentText,
+        studentText: data.studentText || "",
+        sentenceAnswers: data.sentenceAnswers,
       });
       return response.json();
     },
@@ -135,17 +156,42 @@ export default function StudentExam() {
 
     // Check if this is a text dictation exam
     if (activeExam.examType === "text") {
-      if (!textAnswer.trim()) {
-        toast({ 
-          title: "Please enter your dictation", 
-          variant: "destructive" 
+      if (hasSentences) {
+        // Sentence-by-sentence mode
+        const exam = activeExam as ExamWithSentences;
+        const sentenceSubmissions = exam.sentences.map(s => ({
+          sentenceId: s.id,
+          studentSentence: sentenceAnswers[s.id]?.trim() || "",
+        }));
+        
+        // Check if all sentences have answers
+        const emptyCount = sentenceSubmissions.filter(s => !s.studentSentence).length;
+        if (emptyCount > 0) {
+          toast({ 
+            title: `請填寫所有句子 (尚有 ${emptyCount} 句未填)`, 
+            variant: "destructive" 
+          });
+          return;
+        }
+        
+        submitTextMutation.mutate({
+          examId: activeExam.id,
+          sentenceAnswers: sentenceSubmissions,
         });
-        return;
+      } else {
+        // Single text area mode (legacy)
+        if (!textAnswer.trim()) {
+          toast({ 
+            title: "Please enter your dictation", 
+            variant: "destructive" 
+          });
+          return;
+        }
+        submitTextMutation.mutate({
+          examId: activeExam.id,
+          studentText: textAnswer.trim(),
+        });
       }
-      submitTextMutation.mutate({
-        examId: activeExam.id,
-        studentText: textAnswer.trim(),
-      });
     } else {
       // Vocab quiz
       const submissionAnswers = activeExam.questions.map(q => ({
@@ -264,29 +310,70 @@ export default function StudentExam() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               {isTextExam ? (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="text-answer" className="text-sm font-medium">
-                      Type the passage here
-                    </Label>
-                    <Textarea
-                      id="text-answer"
-                      data-testid="textarea-student-text"
-                      placeholder="Type the passage exactly as you hear it..."
-                      value={textAnswer}
-                      onChange={(e) => setTextAnswer(e.target.value)}
-                      onPaste={handlePaste}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      className="min-h-[200px] text-base"
-                    />
+                hasSentences ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground mb-4">
+                      聆聽老師讀出每句，然後在下方輸入。注意拼寫、標點和大小寫。
+                    </p>
+                    {(activeExam as ExamWithSentences).sentences
+                      .sort((a, b) => a.sentenceOrder - b.sentenceOrder)
+                      .map((sentence, index) => (
+                      <Card key={sentence.id} className="border-border">
+                        <CardContent className="pt-4 space-y-3">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-semibold">
+                              {index + 1}
+                            </span>
+                            <span className="font-medium">Sentence {index + 1}</span>
+                            <span className="text-sm text-muted-foreground ml-auto">
+                              {sentence.maxScore} 分
+                            </span>
+                          </div>
+                          <Input
+                            id={`sentence-${sentence.id}`}
+                            data-testid={`input-sentence-${index + 1}`}
+                            placeholder={`輸入第 ${index + 1} 句...`}
+                            value={sentenceAnswers[sentence.id] || ""}
+                            onChange={(e) => setSentenceAnswers(prev => ({
+                              ...prev,
+                              [sentence.id]: e.target.value
+                            }))}
+                            onPaste={handlePaste}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            className="h-11"
+                          />
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    Pay attention to spelling, punctuation, and capitalization. AI will grade your submission.
-                  </p>
-                </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="text-answer" className="text-sm font-medium">
+                        Type the passage here
+                      </Label>
+                      <Textarea
+                        id="text-answer"
+                        data-testid="textarea-student-text"
+                        placeholder="Type the passage exactly as you hear it..."
+                        value={textAnswer}
+                        onChange={(e) => setTextAnswer(e.target.value)}
+                        onPaste={handlePaste}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                        className="min-h-[200px] text-base"
+                      />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Pay attention to spelling, punctuation, and capitalization. AI will grade your submission.
+                    </p>
+                  </div>
+                )
               ) : (
                 activeExam.questions
                   .sort((a, b) => a.wordOrder - b.wordOrder)

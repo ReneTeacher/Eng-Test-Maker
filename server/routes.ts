@@ -65,15 +65,23 @@ export async function registerRoutes(
     }
   });
 
-  // Get active exam with questions
+  // Get active exam with questions or sentences
   app.get("/api/exams/active", async (req, res) => {
     try {
-      const exam = await storage.getActiveExam();
-      if (!exam) {
-        res.status(404).json({ message: "No active exam" });
+      const vocabExam = await storage.getActiveExam();
+      if (vocabExam) {
+        res.json(vocabExam);
         return;
       }
-      res.json(exam);
+      
+      // Check for text dictation exam
+      const textExam = await storage.getActiveTextExam();
+      if (textExam) {
+        res.json(textExam);
+        return;
+      }
+      
+      res.status(404).json({ message: "No active exam" });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch active exam" });
     }
@@ -103,13 +111,36 @@ export async function registerRoutes(
           return;
         }
 
+        // Split text into sentences using common punctuation
+        const sentences = correctText.trim()
+          .split(/(?<=[.!?。！？])\s*/)
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+
+        if (sentences.length === 0) {
+          res.status(400).json({ message: "Could not parse any sentences from the text" });
+          return;
+        }
+
         const exam = await storage.createExam({ 
           title: title.trim(), 
           isActive: isActive ?? false,
           examType: "text",
           correctText: correctText.trim()
         });
-        res.json(exam);
+
+        // Create sentence records (10 points per sentence by default)
+        const sentenceData = sentences.map((sentence: string, index: number) => ({
+          examId: exam.id,
+          sentenceOrder: index + 1,
+          correctSentence: sentence,
+          maxScore: 10,
+        }));
+        await storage.createTextSentences(sentenceData);
+
+        // Return exam with sentences
+        const sentenceList = await storage.getTextSentencesByExamId(exam.id);
+        res.json({ ...exam, sentences: sentenceList });
       } else {
         // Vocab Quiz exam
         if (!vocabularies || typeof vocabularies !== "string") {
@@ -455,12 +486,12 @@ export async function registerRoutes(
     }
   });
 
-  // Submit Text Dictation (AI-scored)
+  // Submit Text Dictation (AI-scored) - supports sentence-by-sentence or full text mode
   app.post("/api/text-submissions", async (req, res) => {
     try {
-      const { examId, studentName, studentNumber, originalClass, mixedClass, studentText } = req.body;
+      const { examId, studentName, studentNumber, originalClass, mixedClass, studentText, sentenceAnswers } = req.body;
       
-      if (!examId || !studentName || !studentNumber || !originalClass || !mixedClass || !studentText) {
+      if (!examId || !studentName || !studentNumber || !originalClass || !mixedClass) {
         res.status(400).json({ message: "Missing required fields" });
         return;
       }
@@ -472,12 +503,138 @@ export async function registerRoutes(
         return;
       }
 
+      // Get sentences for this exam
+      const sentences = await storage.getTextSentencesByExamId(examId);
+      
+      // Sentence-by-sentence mode
+      if (sentenceAnswers && Array.isArray(sentenceAnswers) && sentences.length > 0) {
+        let totalScore = 0;
+        let maxScore = 0;
+        const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
+        
+        for (const sentence of sentences) {
+          const answer = sentenceAnswers.find((a: { sentenceId: number; studentSentence: string }) => a.sentenceId === sentence.id);
+          const studentSentence = answer?.studentSentence || "";
+          maxScore += sentence.maxScore;
+          
+          let earnedScore = 0;
+          let sentenceFeedback = "";
+          
+          try {
+            // AI scoring for each sentence
+            const prompt = `Compare the student's sentence with the correct sentence and give a score out of ${sentence.maxScore}.
+
+CORRECT SENTENCE:
+${sentence.correctSentence}
+
+STUDENT'S SENTENCE:
+${studentSentence}
+
+Grading criteria (proportional to ${sentence.maxScore} points):
+- Spelling accuracy (50%): Deduct points for each spelling mistake
+- Punctuation accuracy (25%): Deduct points for punctuation errors
+- Capitalization accuracy (15%): Deduct points for capitalization errors  
+- Word omission/addition (10%): Deduct points for missing or extra words
+
+Respond in this exact JSON format only:
+{"score": <number 0-${sentence.maxScore}>, "feedback": "<brief feedback in Chinese, max 20 chars>"}`;
+
+            const response = await poeClient.chat.completions.create({
+              model: "Gemini-3-Flash",
+              messages: [{ role: "user", content: prompt }],
+              max_tokens: 200,
+            });
+
+            const content = response.choices[0]?.message?.content || "";
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              earnedScore = Math.max(0, Math.min(sentence.maxScore, parsed.score || 0));
+              sentenceFeedback = parsed.feedback || "";
+            }
+          } catch (aiError) {
+            console.error("AI scoring error for sentence:", aiError);
+            // Fallback: character comparison
+            const correctNorm = sentence.correctSentence.toLowerCase().replace(/\s+/g, ' ').trim();
+            const studentNorm = studentSentence.toLowerCase().replace(/\s+/g, ' ').trim();
+            
+            if (studentNorm.length === 0) {
+              earnedScore = 0;
+              sentenceFeedback = "未填寫";
+            } else {
+              const maxLen = Math.max(correctNorm.length, studentNorm.length);
+              let matches = 0;
+              for (let i = 0; i < Math.min(correctNorm.length, studentNorm.length); i++) {
+                if (correctNorm[i] === studentNorm[i]) matches++;
+              }
+              earnedScore = Math.round((matches / maxLen) * sentence.maxScore);
+              sentenceFeedback = "基本比對評分";
+            }
+          }
+          
+          totalScore += earnedScore;
+          sentenceResults.push({
+            sentenceId: sentence.id,
+            earned: earnedScore,
+            max: sentence.maxScore,
+            feedback: sentenceFeedback,
+          });
+        }
+        
+        // Combine all student sentences for storage
+        const combinedText = sentenceAnswers
+          .sort((a: { sentenceId: number }, b: { sentenceId: number }) => {
+            const sentA = sentences.find(s => s.id === a.sentenceId);
+            const sentB = sentences.find(s => s.id === b.sentenceId);
+            return (sentA?.sentenceOrder || 0) - (sentB?.sentenceOrder || 0);
+          })
+          .map((a: { studentSentence: string }) => a.studentSentence)
+          .join(" ");
+        
+        // Save submission
+        const submission = await storage.createTextSubmission({
+          examId,
+          studentName,
+          studentNumber,
+          originalClass,
+          mixedClass,
+          studentText: combinedText,
+          totalScore,
+          maxScore,
+          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${r.earned}/${r.max}分`).join("; "),
+        });
+        
+        // Save sentence answer details
+        const answerDetails = sentenceResults.map((r, i) => ({
+          submissionId: submission.id,
+          sentenceId: r.sentenceId,
+          studentSentence: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
+          earnedScore: r.earned,
+          feedback: r.feedback,
+        }));
+        await storage.createTextAnswerDetails(answerDetails);
+
+        res.json({
+          totalScore,
+          maxScore,
+          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${r.earned}/${r.max}分 - ${r.feedback}`).join("\n"),
+          sentenceResults,
+          studentName,
+        });
+        return;
+      }
+
+      // Legacy full text mode
+      if (!studentText) {
+        res.status(400).json({ message: "Student text is required" });
+        return;
+      }
+
       if (!exam.correctText) {
         res.status(400).json({ message: "Exam has no correct text configured" });
         return;
       }
 
-      // Use AI to score the text dictation
       let totalScore = 0;
       let feedback = "";
 
@@ -506,8 +663,6 @@ Respond in this exact JSON format only, no other text:
         });
 
         const content = response.choices[0]?.message?.content || "";
-        
-        // Parse JSON response
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
@@ -516,7 +671,6 @@ Respond in this exact JSON format only, no other text:
         }
       } catch (aiError) {
         console.error("AI scoring error:", aiError);
-        // Fallback: simple character-by-character comparison
         const correctNorm = exam.correctText.toLowerCase().replace(/\s+/g, ' ').trim();
         const studentNorm = studentText.toLowerCase().replace(/\s+/g, ' ').trim();
         
@@ -529,7 +683,6 @@ Respond in this exact JSON format only, no other text:
         feedback = "AI評分暫時無法使用，使用基本比對評分";
       }
 
-      // Save the submission
       const submission = await storage.createTextSubmission({
         examId,
         studentName,
@@ -538,6 +691,7 @@ Respond in this exact JSON format only, no other text:
         mixedClass,
         studentText,
         totalScore,
+        maxScore: 100,
         feedback,
       });
 
