@@ -116,23 +116,102 @@ export async function registerRoutes(
     }
   });
 
-  // Update exam (toggle active status)
+  // Update exam (toggle active status and now full edit)
   app.patch("/api/exams/:id", async (req, res) => {
     try {
       const examId = parseInt(req.params.id);
-      const { isActive } = req.body;
+      const { isActive, title, vocabularies } = req.body;
 
-      if (typeof isActive === "boolean") {
-        // If activating this exam, deactivate all others first
+      if (typeof isActive === "boolean" && !title && !vocabularies) {
+        // Simple toggle
         if (isActive) {
           await storage.deactivateAllExams();
         }
         const updated = await storage.updateExam(examId, { isActive });
         res.json(updated);
+        return;
+      }
+
+      // Full update
+      if (title && vocabularies) {
+        const vocabLines = vocabularies
+          .split("\n")
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0);
+
+        if (vocabLines.length === 0) {
+          res.status(400).json({ message: "At least one vocabulary entry is required" });
+          return;
+        }
+
+        const parsedVocabs: { word: string; pos: string; meaning: string }[] = [];
+        for (let i = 0; i < vocabLines.length; i++) {
+          const parts = vocabLines[i].split("|").map((p: string) => p.trim());
+          if (parts.length !== 3) {
+            res.status(400).json({ message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning` });
+            return;
+          }
+          parsedVocabs.push({ word: parts[0], pos: parts[1], meaning: parts[2] });
+        }
+
+        if (isActive) {
+          await storage.deactivateAllExams();
+        }
+
+        const updated = await storage.updateExam(examId, { title, isActive: isActive ?? false });
+        
+        // Remove old questions and create new ones
+        // In a real app we might want to map existing questions, but replacing is simpler for this format
+        await storage.deleteQuestionsByExamId(examId);
+        const questionData = parsedVocabs.map((vocab, index) => ({
+          examId,
+          wordOrder: index + 1,
+          correctWord: vocab.word,
+          correctPos: vocab.pos,
+          correctMeaning: vocab.meaning,
+        }));
+        await storage.createQuestions(questionData);
+
+        // RE-CALCULATE SCORES for all submissions of this exam
+        const submissions = await storage.getSubmissionsByExamId(examId);
+        const questions = await storage.getQuestionsByExamId(examId);
+
+        for (const sub of submissions) {
+          const answers = await storage.getAnswerDetailsBySubmissionId(sub.id);
+          let newTotalScore = 0;
+
+          for (const answer of answers) {
+            const question = questions.find(q => q.id === answer.questionId);
+            if (question) {
+              const studentWord = answer.studentWord.trim().toLowerCase();
+              const studentPos = answer.studentPos.trim().toLowerCase();
+              const studentMeaning = answer.studentMeaning.trim();
+
+              const correctWords = question.correctWord.split(/[,/]/).map(w => w.trim().toLowerCase());
+              const correctPosList = question.correctPos.split(/[,/]/).map(p => p.trim().toLowerCase());
+              const correctMeanings = question.correctMeaning.split(/[,/]/).map(m => m.trim());
+
+              const isCorrect = correctWords.includes(studentWord) && 
+                               correctPosList.includes(studentPos) && 
+                               correctMeanings.includes(studentMeaning);
+              
+              if (isCorrect) newTotalScore++;
+              
+              // Update individual answer correctness
+              await storage.updateAnswerDetail(answer.id, { isCorrect });
+            }
+          }
+
+          // Update submission total score
+          await storage.updateSubmissionScore(sub.id, newTotalScore);
+        }
+
+        res.json(updated);
       } else {
         res.status(400).json({ message: "Invalid update data" });
       }
     } catch (error) {
+      console.error("Update exam error:", error);
       res.status(500).json({ message: "Failed to update exam" });
     }
   });
@@ -145,6 +224,22 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Failed to delete exam" });
+    }
+  });
+
+  // Get single exam with questions
+  app.get("/api/exams/:id", async (req, res) => {
+    try {
+      const examId = parseInt(req.params.id);
+      const exam = await storage.getExamById(examId);
+      if (!exam) {
+        res.status(404).json({ message: "Exam not found" });
+        return;
+      }
+      const questions = await storage.getQuestionsByExamId(examId);
+      res.json({ ...exam, questions });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch exam" });
     }
   });
 

@@ -20,6 +20,7 @@ function Router() {
       <Route path="/admin" component={AdminLogin} />
       <Route path="/admin/dashboard" component={AdminDashboard} />
       <Route path="/admin/create-exam" component={AdminCreateExam} />
+      <Route path="/admin/edit-exam/:id" component={AdminCreateExam} />
       <Route component={NotFound} />
     </Switch>
   );

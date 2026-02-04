@@ -238,6 +238,15 @@ export default function AdminDashboard() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center justify-end gap-1">
+                            <Link href={`/admin/edit-exam/${exam.id}`}>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                data-testid={`button-edit-${exam.id}`}
+                              >
+                                <FileText className="w-4 h-4" />
+                              </Button>
+                            </Link>
                             <Button
                               size="sm"
                               variant="ghost"

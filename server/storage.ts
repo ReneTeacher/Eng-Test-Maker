@@ -20,16 +20,19 @@ export interface IStorage {
   // Questions
   createQuestions(questions: InsertQuestion[]): Promise<Question[]>;
   getQuestionsByExamId(examId: number): Promise<Question[]>;
+  deleteQuestionsByExamId(examId: number): Promise<void>;
 
   // Submissions
   createSubmission(submission: InsertSubmission & { totalScore: number }): Promise<StudentSubmission>;
   getSubmissions(): Promise<StudentSubmission[]>;
   getSubmissionsByExamId(examId: number): Promise<StudentSubmission[]>;
+  updateSubmissionScore(id: number, score: number): Promise<void>;
 
   // Answer Details
   createAnswerDetails(details: InsertAnswerDetail[]): Promise<AnswerDetail[]>;
   getAnswerDetailsBySubmissionId(submissionId: number): Promise<AnswerDetail[]>;
   getAnswerDetailsByExamId(examId: number): Promise<(AnswerDetail & { submissionId: number })[]>;
+  updateAnswerDetail(id: number, data: Partial<AnswerDetail>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -85,6 +88,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(questions).where(eq(questions.examId, examId)).orderBy(questions.wordOrder);
   }
 
+  async deleteQuestionsByExamId(examId: number): Promise<void> {
+    await db.delete(questions).where(eq(questions.examId, examId));
+  }
+
   // Submissions
   async createSubmission(submission: InsertSubmission & { totalScore: number }): Promise<StudentSubmission> {
     const [created] = await db.insert(studentSubmissions).values(submission).returning();
@@ -101,6 +108,10 @@ export class DatabaseStorage implements IStorage {
       .from(studentSubmissions)
       .where(eq(studentSubmissions.examId, examId))
       .orderBy(desc(studentSubmissions.submittedAt));
+  }
+
+  async updateSubmissionScore(id: number, score: number): Promise<void> {
+    await db.update(studentSubmissions).set({ totalScore: score }).where(eq(studentSubmissions.id, id));
   }
 
   // Answer Details
@@ -123,6 +134,10 @@ export class DatabaseStorage implements IStorage {
     }
     
     return allDetails;
+  }
+
+  async updateAnswerDetail(id: number, data: Partial<AnswerDetail>): Promise<void> {
+    await db.update(answerDetails).set(data).where(eq(answerDetails.id, id));
   }
 }
 

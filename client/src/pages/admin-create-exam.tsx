@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { useLocation, Link } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useLocation, Link, useParams } from "wouter";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,14 +10,35 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Save, FileText, ListOrdered, Eye } from "lucide-react";
+import { ArrowLeft, Save, FileText, ListOrdered, Eye, Loader2 } from "lucide-react";
+import type { ExamWithQuestions } from "@shared/schema";
 
 export default function AdminCreateExam() {
+  const { id } = useParams<{ id: string }>();
+  const isEdit = !!id;
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [title, setTitle] = useState("");
   const [vocabularies, setVocabularies] = useState("");
   const [isActive, setIsActive] = useState(true);
+
+  const { data: existingExam, isLoading: isExamLoading } = useQuery<ExamWithQuestions>({
+    queryKey: [`/api/exams/${id}`],
+    enabled: isEdit,
+  });
+
+  useEffect(() => {
+    if (existingExam) {
+      setTitle(existingExam.title);
+      setIsActive(existingExam.isActive);
+      
+      const vocabString = existingExam.questions
+        .sort((a, b) => a.wordOrder - b.wordOrder)
+        .map(q => `${q.correctWord} | ${q.correctPos} | ${q.correctMeaning}`)
+        .join("\n");
+      setVocabularies(vocabString);
+    }
+  }, [existingExam]);
 
   useEffect(() => {
     const isAuth = sessionStorage.getItem("adminAuth");
@@ -26,23 +47,27 @@ export default function AdminCreateExam() {
     }
   }, [navigate]);
 
-  const createMutation = useMutation({
+  const saveMutation = useMutation({
     mutationFn: async (data: { title: string; vocabularies: string; isActive: boolean }) => {
-      const response = await apiRequest("POST", "/api/exams", data);
+      const url = isEdit ? `/api/exams/${id}` : "/api/exams";
+      const method = isEdit ? "PATCH" : "POST";
+      const response = await apiRequest(method, url, data);
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.message || "Failed to create exam");
+        throw new Error(error.message || `Failed to ${isEdit ? "update" : "create"} exam`);
       }
       return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
-      toast({ title: "Exam created successfully" });
+      if (isEdit) queryClient.invalidateQueries({ queryKey: [`/api/exams/${id}`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/submissions"] });
+      toast({ title: `Exam ${isEdit ? "updated" : "created"} successfully` });
       navigate("/admin/dashboard");
     },
     onError: (error: Error) => {
       toast({ 
-        title: "Failed to create exam", 
+        title: `Failed to ${isEdit ? "save" : "create"} exam`, 
         description: error.message,
         variant: "destructive" 
       });
@@ -61,7 +86,7 @@ export default function AdminCreateExam() {
       return;
     }
 
-    createMutation.mutate({ title: title.trim(), vocabularies: vocabularies.trim(), isActive });
+    saveMutation.mutate({ title: title.trim(), vocabularies: vocabularies.trim(), isActive });
   };
 
   const vocabList = vocabularies
@@ -76,6 +101,14 @@ export default function AdminCreateExam() {
       return { word: line, pos: "", meaning: "", valid: false };
     });
 
+  if (isEdit && isExamLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b bg-card sticky top-0 z-10">
@@ -86,8 +119,8 @@ export default function AdminCreateExam() {
             </Button>
           </Link>
           <div>
-            <h1 className="font-bold text-lg">Create New Exam</h1>
-            <p className="text-sm text-muted-foreground">Add a dictation test for students</p>
+            <h1 className="font-bold text-lg">{isEdit ? "Edit Exam" : "Create New Exam"}</h1>
+            <p className="text-sm text-muted-foreground">{isEdit ? "Modify existing test and update scores" : "Add a dictation test for students"}</p>
           </div>
         </div>
       </header>
@@ -105,6 +138,16 @@ export default function AdminCreateExam() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
+              {isEdit && (
+                <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-md mb-4 text-sm text-yellow-700 dark:text-yellow-400">
+                  <div className="flex gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <p>
+                      <strong>Important:</strong> Updating an exam will automatically re-calculate the scores of all existing student submissions based on the new correct answers.
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="title">Exam Title</Label>
                 <Input
@@ -198,15 +241,15 @@ export default function AdminCreateExam() {
             <Button 
               type="submit" 
               className="flex-1"
-              disabled={createMutation.isPending || !title.trim() || !vocabularies.trim()}
+              disabled={saveMutation.isPending || !title.trim() || !vocabularies.trim()}
               data-testid="button-save-exam"
             >
-              {createMutation.isPending ? (
-                "Creating..."
+              {saveMutation.isPending ? (
+                isEdit ? "Updating..." : "Creating..."
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
-                  Create Exam
+                  {isEdit ? "Update Exam" : "Create Exam"}
                 </>
               )}
             </Button>
@@ -216,3 +259,5 @@ export default function AdminCreateExam() {
     </div>
   );
 }
+
+import { AlertCircle } from "lucide-react";
