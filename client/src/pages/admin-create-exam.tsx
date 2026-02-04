@@ -281,7 +281,7 @@ export default function AdminCreateExam() {
                     className="min-h-[200px] font-mono text-sm"
                   />
                   <p className="text-sm text-muted-foreground">
-                    Format: Word | Part of Speech | Chinese Meaning. Use '/' or ',' for multiple acceptable answers. Part of Speech should be the full name (e.g., noun, verb).
+                    滿分 100 分，將自動分配分數。格式: Word | POS | Meaning。
                   </p>
                 </div>
               ) : (
@@ -384,7 +384,7 @@ export default function AdminCreateExam() {
                     ))}
                   </div>
                   <p className="text-sm text-muted-foreground mt-4">
-                    每句 10 分，總分 {sentences.length * 10} 分
+                    滿分 100 分，共 {sentences.length} 句，每句約 {Math.round(100 / sentences.length)} 分
                   </p>
                 </CardContent>
               </Card>

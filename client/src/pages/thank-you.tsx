@@ -37,7 +37,7 @@ export default function ThankYou() {
   }, []);
 
   const isTextDictation = result?.isTextDictation;
-  const maxPossible = isTextDictation ? (result?.maxScore || 100) : (result?.totalQuestions || 1);
+  const maxPossible = 100;
   const percentage = result ? Math.round((result.totalScore / maxPossible) * 100) : 0;
 
   const getScoreColor = () => {

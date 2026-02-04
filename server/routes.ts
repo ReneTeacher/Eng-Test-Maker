@@ -129,12 +129,16 @@ export async function registerRoutes(
           correctText: correctText.trim()
         });
 
-        // Create sentence records (10 points per sentence by default)
+        // Create sentence records (distributed points to total 100)
+        const totalPoints = 100;
+        const pointsPerSentence = Math.floor(totalPoints / sentences.length);
+        const remainder = totalPoints % sentences.length;
+
         const sentenceData = sentences.map((sentence: string, index: number) => ({
           examId: exam.id,
           sentenceOrder: index + 1,
           correctSentence: sentence,
-          maxScore: 10,
+          maxScore: pointsPerSentence + (index < remainder ? 1 : 0),
         }));
         await storage.createTextSentences(sentenceData);
 
@@ -186,13 +190,28 @@ export async function registerRoutes(
         });
 
         // Create questions
-        const questionData = parsedVocabs.map((vocab, index) => ({
-          examId: exam.id,
-          wordOrder: index + 1,
-          correctWord: vocab.word,
-          correctPos: vocab.pos,
-          correctMeaning: vocab.meaning,
-        }));
+        const totalPoints = 100;
+        const pointsPerQuestion = Math.floor(totalPoints / parsedVocabs.length);
+        const remainder = totalPoints % parsedVocabs.length;
+
+        const questionData = parsedVocabs.map((vocab, index) => {
+          const qTotal = pointsPerQuestion + (index < remainder ? 1 : 0);
+          // Distribute question points: Word(50%), POS(25%), Meaning(25%)
+          const wordScore = Math.floor(qTotal * 0.5);
+          const posScore = Math.floor(qTotal * 0.25);
+          const meaningScore = qTotal - wordScore - posScore;
+
+          return {
+            examId: exam.id,
+            wordOrder: index + 1,
+            correctWord: vocab.word,
+            correctPos: vocab.pos,
+            correctMeaning: vocab.meaning,
+            wordScore,
+            posScore,
+            meaningScore,
+          };
+        });
         await storage.createQuestions(questionData);
 
         res.json(exam);
@@ -271,13 +290,27 @@ export async function registerRoutes(
         // Remove old questions and create new ones
         // In a real app we might want to map existing questions, but replacing is simpler for this format
         await storage.deleteQuestionsByExamId(examId);
-        const questionData = parsedVocabs.map((vocab, index) => ({
-          examId,
-          wordOrder: index + 1,
-          correctWord: vocab.word,
-          correctPos: vocab.pos,
-          correctMeaning: vocab.meaning,
-        }));
+        const totalPoints = 100;
+        const pointsPerQuestion = Math.floor(totalPoints / parsedVocabs.length);
+        const remainder = totalPoints % parsedVocabs.length;
+
+        const questionData = parsedVocabs.map((vocab, index) => {
+          const qTotal = pointsPerQuestion + (index < remainder ? 1 : 0);
+          const wordScore = Math.floor(qTotal * 0.5);
+          const posScore = Math.floor(qTotal * 0.25);
+          const meaningScore = qTotal - wordScore - posScore;
+
+          return {
+            examId,
+            wordOrder: index + 1,
+            correctWord: vocab.word,
+            correctPos: vocab.pos,
+            correctMeaning: vocab.meaning,
+            wordScore,
+            posScore,
+            meaningScore,
+          };
+        });
         await storage.createQuestions(questionData);
 
         // RE-CALCULATE SCORES for all submissions of this exam using weighted scoring
@@ -459,8 +492,8 @@ export async function registerRoutes(
         studentNumber,
         originalClass,
         mixedClass,
-        totalScore,
-      });
+        totalScore: Math.round(totalScore),
+      } as any);
 
       // Create answer details with individual part scores
       await storage.createAnswerDetails(

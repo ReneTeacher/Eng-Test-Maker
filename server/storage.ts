@@ -120,7 +120,14 @@ export class DatabaseStorage implements IStorage {
 
   // Submissions
   async createSubmission(submission: InsertSubmission & { totalScore: number }): Promise<StudentSubmission> {
-    const [created] = await db.insert(studentSubmissions).values(submission).returning();
+    const [created] = await db.insert(studentSubmissions).values({
+      examId: submission.examId,
+      studentName: submission.studentName,
+      studentNumber: submission.studentNumber,
+      originalClass: submission.originalClass,
+      mixedClass: submission.mixedClass,
+      totalScore: submission.totalScore,
+    }).returning();
     return created;
   }
 
