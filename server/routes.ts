@@ -228,13 +228,16 @@ export async function registerRoutes(
         return;
       }
 
+      // Sort questions once for consistency
+      const sortedQuestions = [...questions].sort((a, b) => a.wordOrder - b.wordOrder);
+      
       // Build Excel data
       const headers = [
         "Name",
         "Student Number",
         "Original Class",
         "Mixed Class",
-        ...questions.sort((a, b) => a.wordOrder - b.wordOrder).map((_, i) => `Q${i + 1}_Answer`),
+        ...sortedQuestions.map((_, i) => `Q${i + 1}_Answer`),
         "Total Score",
         "Timestamp"
       ];
@@ -248,7 +251,7 @@ export async function registerRoutes(
           sub.studentNumber,
           sub.originalClass,
           sub.mixedClass,
-          ...questions.sort((a, b) => a.wordOrder - b.wordOrder).map(q => answerMap.get(q.id) || ""),
+          ...sortedQuestions.map(q => answerMap.get(q.id) || ""),
           sub.totalScore,
           new Date(sub.submittedAt).toLocaleString()
         ];
@@ -267,8 +270,9 @@ export async function registerRoutes(
       // Set column widths
       worksheet.columns = headers.map((h) => ({ width: Math.max(h.length, 15) }));
 
-      // Generate buffer
-      const buffer = await workbook.xlsx.writeBuffer();
+      // Generate buffer and convert to Node Buffer for consistent binary delivery
+      const arrayBuffer = await workbook.xlsx.writeBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
       res.setHeader("Content-Disposition", `attachment; filename="${exam.title}-results.xlsx"`);
