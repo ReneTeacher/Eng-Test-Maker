@@ -164,3 +164,40 @@ export const messages = pgTable("messages", {
 
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+
+// Answer Sheet Sessions for Quick Answer Sheet Builder
+export const answerSheetSessions = pgTable("answer_sheet_sessions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  title: text("title").notNull(),
+  paperLink: text("paper_link").notNull(),
+  itemsJson: text("items_json").notNull(), // JSON string of QuestionItem[]
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// QuestionItem interface for the items_json field
+export interface QuestionItem {
+  id: number; // Question Number
+  type: 'mc' | 'text';
+  correct: string;
+  options?: string[]; // e.g. ['A','B','C','D'] for MC
+}
+
+export const answerSheetSubmissions = pgTable("answer_sheet_submissions", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  sessionId: integer("session_id").notNull().references(() => answerSheetSessions.id, { onDelete: "cascade" }),
+  studentName: text("student_name").notNull(),
+  studentNumber: integer("student_number").notNull(),
+  originalClass: text("original_class").notNull(),
+  answersJson: text("answers_json").notNull(), // JSON string of student answers
+  totalScore: integer("total_score").notNull(),
+  maxScore: integer("max_score").notNull(),
+  submittedAt: timestamp("submitted_at").notNull().defaultNow(),
+});
+
+export const insertAnswerSheetSessionSchema = createInsertSchema(answerSheetSessions).omit({ id: true, createdAt: true });
+export const insertAnswerSheetSubmissionSchema = createInsertSchema(answerSheetSubmissions).omit({ id: true, submittedAt: true });
+
+export type InsertAnswerSheetSession = z.infer<typeof insertAnswerSheetSessionSchema>;
+export type InsertAnswerSheetSubmission = z.infer<typeof insertAnswerSheetSubmissionSchema>;
+export type AnswerSheetSession = typeof answerSheetSessions.$inferSelect;
+export type AnswerSheetSubmission = typeof answerSheetSubmissions.$inferSelect;
