@@ -13,6 +13,7 @@ import AdminCreateExam from "@/pages/admin-create-exam";
 import AdminSubmissions from "@/pages/admin-submissions";
 import TeacherQuickBuild from "@/pages/teacher-quick-build";
 import StudentAnswerSheet from "@/pages/student-answer-sheet";
+import AdminSheetSubmissions from "@/pages/admin-sheet-submissions";
 
 function Router() {
   return (
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/admin/create-exam" component={AdminCreateExam} />
       <Route path="/admin/edit-exam/:id" component={AdminCreateExam} />
       <Route path="/admin/submissions/:examId" component={AdminSubmissions} />
+      <Route path="/admin/sheet-submissions/:id" component={AdminSheetSubmissions} />
       <Route path="/teacher/quick-build" component={TeacherQuickBuild} />
       <Route path="/sheet/:id" component={StudentAnswerSheet} />
       <Route path="/exam/:id" component={StudentLogin} />
