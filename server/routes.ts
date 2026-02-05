@@ -1145,10 +1145,10 @@ Respond in this exact JSON format only, no other text:
     }
   });
 
-  // Create answer sheet session
+  // Create answer sheet session (supports both old items format and new parts format)
   app.post("/api/answer-sheets", async (req, res) => {
     try {
-      const { title, paperLink, items } = req.body;
+      const { title, paperLink, items, parts } = req.body;
       
       if (!title || typeof title !== "string" || !title.trim()) {
         res.status(400).json({ message: "Title is required" });
@@ -1160,7 +1160,20 @@ Respond in this exact JSON format only, no other text:
         return;
       }
       
-      if (!items || !Array.isArray(items) || items.length === 0) {
+      // Support both old format (items) and new format (parts)
+      let itemsJson: string;
+      if (parts && Array.isArray(parts)) {
+        // New parts format
+        const totalQuestions = parts.reduce((sum: number, p: any) => sum + (p.questions?.length || 0), 0);
+        if (totalQuestions === 0) {
+          res.status(400).json({ message: "At least one question is required" });
+          return;
+        }
+        itemsJson = JSON.stringify(parts);
+      } else if (items && Array.isArray(items) && items.length > 0) {
+        // Old format
+        itemsJson = JSON.stringify(items);
+      } else {
         res.status(400).json({ message: "At least one question is required" });
         return;
       }
@@ -1168,7 +1181,7 @@ Respond in this exact JSON format only, no other text:
       const session = await storage.createAnswerSheetSession({
         title: title.trim(),
         paperLink: paperLink.trim(),
-        itemsJson: JSON.stringify(items),
+        itemsJson,
       });
 
       res.json(session);
@@ -1228,16 +1241,42 @@ Respond in this exact JSON format only, no other text:
         return;
       }
 
-      const items = JSON.parse(session.itemsJson) as { id: number; type: string; correct: string; options?: string[] }[];
+      const parsed = JSON.parse(session.itemsJson);
       
-      // Calculate score
+      // Determine format: parts or flat items
+      interface QuestionItemType { id: number; type: string; correct: string; options?: string[] }
+      interface PartItemType { partId: string; partName: string; questions: QuestionItemType[] }
+      
+      let allQuestions: { partId?: string; partName?: string; question: QuestionItemType }[] = [];
+      
+      if (Array.isArray(parsed) && parsed.length > 0 && 'partId' in parsed[0]) {
+        // New parts format
+        const parts = parsed as PartItemType[];
+        for (const part of parts) {
+          for (const q of part.questions) {
+            allQuestions.push({ partId: part.partId, partName: part.partName, question: q });
+          }
+        }
+      } else {
+        // Old flat format
+        const items = parsed as QuestionItemType[];
+        for (const q of items) {
+          allQuestions.push({ question: q });
+        }
+      }
+      
+      // Calculate score - answers format: { "partId:questionId": answer } or { "questionId": answer }
       let totalScore = 0;
-      const maxScore = items.length;
+      const maxScore = allQuestions.length;
       
-      for (const item of items) {
-        const studentAnswer = answers[item.id];
+      for (const { partId, question } of allQuestions) {
+        // Try both key formats
+        const key1 = partId ? `${partId}:${question.id}` : String(question.id);
+        const key2 = String(question.id);
+        const studentAnswer = answers[key1] || answers[key2];
+        
         if (studentAnswer) {
-          const correct = item.correct.trim().toLowerCase();
+          const correct = question.correct.trim().toLowerCase();
           const student = String(studentAnswer).trim().toLowerCase();
           if (correct === student) {
             totalScore++;

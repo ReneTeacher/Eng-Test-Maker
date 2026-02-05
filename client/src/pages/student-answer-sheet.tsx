@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -9,26 +9,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { ExternalLink, Send, CheckCircle2, XCircle, User } from "lucide-react";
-import type { AnswerSheetSession, QuestionItem } from "@shared/schema";
+import type { AnswerSheetSession, QuestionItem, PartItem } from "@shared/schema";
+
+interface FlatQuestion {
+  partId?: string;
+  partName?: string;
+  question: QuestionItem;
+}
 
 export default function StudentAnswerSheet() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   
-  // Login state
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [studentName, setStudentName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
   const [originalClass, setOriginalClass] = useState("");
   
-  // Answer state
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
   
-  // Result state
   const [result, setResult] = useState<{ totalScore: number; maxScore: number; percentage: number } | null>(null);
 
-  // Fetch answer sheet data
   const { data: session, isLoading, error } = useQuery<AnswerSheetSession>({
     queryKey: ["/api/answer-sheets", id],
     queryFn: async () => {
@@ -39,9 +41,36 @@ export default function StudentAnswerSheet() {
     enabled: !!id,
   });
 
-  const items: QuestionItem[] = session ? JSON.parse(session.itemsJson) : [];
+  // Parse items - support both old format (flat array) and new format (parts)
+  const parseItems = (): { parts: PartItem[] | null; flatQuestions: FlatQuestion[] } => {
+    if (!session) return { parts: null, flatQuestions: [] };
+    
+    try {
+      const parsed = JSON.parse(session.itemsJson);
+      
+      if (Array.isArray(parsed) && parsed.length > 0 && 'partId' in parsed[0]) {
+        // New parts format
+        const parts = parsed as PartItem[];
+        const flatQuestions: FlatQuestion[] = [];
+        for (const part of parts) {
+          for (const q of part.questions) {
+            flatQuestions.push({ partId: part.partId, partName: part.partName, question: q });
+          }
+        }
+        return { parts, flatQuestions };
+      } else {
+        // Old flat format
+        const items = parsed as QuestionItem[];
+        const flatQuestions = items.map(q => ({ question: q }));
+        return { parts: null, flatQuestions };
+      }
+    } catch {
+      return { parts: null, flatQuestions: [] };
+    }
+  };
 
-  // Submit mutation
+  const { parts, flatQuestions } = parseItems();
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", `/api/answer-sheets/${id}/submit`, {
@@ -61,7 +90,6 @@ export default function StudentAnswerSheet() {
     },
   });
 
-  // Handle login
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!studentName.trim() || !studentNumber || !originalClass) {
@@ -71,19 +99,25 @@ export default function StudentAnswerSheet() {
     setIsLoggedIn(true);
   };
 
-  // Handle MC selection
-  const selectMcAnswer = (questionId: number, option: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: option }));
+  const getAnswerKey = (partId: string | undefined, questionId: number) => {
+    return partId ? `${partId}:${questionId}` : String(questionId);
   };
 
-  // Handle text input
-  const setTextAnswer = (questionId: number, value: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+  const selectMcAnswer = (partId: string | undefined, questionId: number, option: string) => {
+    const key = getAnswerKey(partId, questionId);
+    setAnswers((prev) => ({ ...prev, [key]: option }));
   };
 
-  // Handle submit
+  const setTextAnswer = (partId: string | undefined, questionId: number, value: string) => {
+    const key = getAnswerKey(partId, questionId);
+    setAnswers((prev) => ({ ...prev, [key]: value }));
+  };
+
   const handleSubmit = () => {
-    const unanswered = items.filter((item) => !answers[item.id]);
+    const unanswered = flatQuestions.filter((item) => {
+      const key = getAnswerKey(item.partId, item.question.id);
+      return !answers[key];
+    });
     if (unanswered.length > 0) {
       if (!confirm(`還有 ${unanswered.length} 題未作答，確定要提交嗎？`)) {
         return;
@@ -134,30 +168,63 @@ export default function StudentAnswerSheet() {
               <p className="text-sm text-muted-foreground">班級: {originalClass}</p>
             </div>
             
-            {/* Show answers comparison */}
             <div className="mt-6 text-left max-h-64 overflow-y-auto border rounded-md p-3">
-              {items.map((item) => {
-                const studentAnswer = answers[item.id] || "(未作答)";
-                const isCorrect = studentAnswer.toLowerCase().trim() === item.correct.toLowerCase().trim();
-                return (
-                  <div key={item.id} className="flex items-center gap-2 py-1 border-b last:border-0">
-                    <span className="w-8 text-muted-foreground">Q{item.id}</span>
-                    {isCorrect ? (
-                      <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <XCircle className="h-4 w-4 text-red-500" />
-                    )}
-                    <span className={isCorrect ? "text-green-600" : "text-red-600"}>
-                      {studentAnswer}
-                    </span>
-                    {!isCorrect && (
-                      <span className="text-muted-foreground text-sm">
-                        (正確: {item.correct})
-                      </span>
-                    )}
+              {parts ? (
+                // Multi-part format
+                parts.map((part) => (
+                  <div key={part.partId} className="mb-4">
+                    <h4 className="font-semibold text-primary text-sm mb-2">{part.partName}</h4>
+                    {part.questions.map((q) => {
+                      const key = getAnswerKey(part.partId, q.id);
+                      const studentAnswer = answers[key] || "(未作答)";
+                      const isCorrect = studentAnswer.toLowerCase().trim() === q.correct.toLowerCase().trim();
+                      return (
+                        <div key={key} className="flex items-center gap-2 py-1 border-b last:border-0">
+                          <span className="w-8 text-muted-foreground">Q{q.id}</span>
+                          {isCorrect ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span className={isCorrect ? "text-green-600" : "text-red-600"}>
+                            {studentAnswer}
+                          </span>
+                          {!isCorrect && (
+                            <span className="text-muted-foreground text-sm">
+                              (正確: {q.correct})
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                ))
+              ) : (
+                // Flat format
+                flatQuestions.map((item) => {
+                  const key = getAnswerKey(item.partId, item.question.id);
+                  const studentAnswer = answers[key] || "(未作答)";
+                  const isCorrect = studentAnswer.toLowerCase().trim() === item.question.correct.toLowerCase().trim();
+                  return (
+                    <div key={key} className="flex items-center gap-2 py-1 border-b last:border-0">
+                      <span className="w-8 text-muted-foreground">Q{item.question.id}</span>
+                      {isCorrect ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <XCircle className="h-4 w-4 text-red-500" />
+                      )}
+                      <span className={isCorrect ? "text-green-600" : "text-red-600"}>
+                        {studentAnswer}
+                      </span>
+                      {!isCorrect && (
+                        <span className="text-muted-foreground text-sm">
+                          (正確: {item.question.correct})
+                        </span>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </CardContent>
         </Card>
@@ -224,10 +291,9 @@ export default function StudentAnswerSheet() {
     );
   }
 
-  // Show answer form (iPad-optimized split screen)
+  // Show answer form with parts support
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <div className="sticky top-0 z-10 bg-background border-b p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div>
@@ -255,59 +321,124 @@ export default function StudentAnswerSheet() {
         </div>
       </div>
 
-      {/* Answer Form */}
-      <div className="max-w-4xl mx-auto p-4">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((item) => (
-            <Card key={item.id} className="relative">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                    {item.id}
-                  </span>
-                  <span className={`px-2 py-0.5 rounded text-xs ${
-                    item.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                  }`}>
-                    {item.type === "mc" ? "MC" : "填充"}
-                  </span>
-                </div>
+      <div className="max-w-4xl mx-auto p-4 space-y-6">
+        {parts ? (
+          // Multi-part format
+          parts.map((part) => (
+            <div key={part.partId}>
+              <h3 className="text-lg font-semibold text-primary mb-3 sticky top-20 bg-background py-2 z-5">
+                {part.partName}
+              </h3>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {part.questions.map((question) => {
+                  const key = getAnswerKey(part.partId, question.id);
+                  return (
+                    <Card key={key} className="relative">
+                      <CardContent className="pt-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
+                            {question.id}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            question.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                          }`}>
+                            {question.type === "mc" ? "MC" : "填充"}
+                          </span>
+                        </div>
 
-                {item.type === "mc" && item.options ? (
-                  <div className="flex flex-wrap gap-2">
-                    {item.options.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        onClick={() => selectMcAnswer(item.id, option)}
-                        className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
-                          answers[item.id] === option
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "bg-background text-foreground border-border hover:border-primary/50"
-                        }`}
-                        data-testid={`button-option-${item.id}-${option}`}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <Input
-                    placeholder="輸入答案"
-                    value={answers[item.id] || ""}
-                    onChange={(e) => setTextAnswer(item.id, e.target.value)}
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="off"
-                    spellCheck="false"
-                    data-testid={`input-text-${item.id}`}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                        {question.type === "mc" && question.options ? (
+                          <div className="flex flex-wrap gap-2">
+                            {question.options.map((option) => (
+                              <button
+                                key={option}
+                                type="button"
+                                onClick={() => selectMcAnswer(part.partId, question.id, option)}
+                                className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
+                                  answers[key] === option
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "bg-background text-foreground border-border hover:border-primary/50"
+                                }`}
+                                data-testid={`button-option-${part.partId}-${question.id}-${option}`}
+                              >
+                                {option}
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <Input
+                            placeholder="輸入答案"
+                            value={answers[key] || ""}
+                            onChange={(e) => setTextAnswer(part.partId, question.id, e.target.value)}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck="false"
+                            data-testid={`input-text-${part.partId}-${question.id}`}
+                          />
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        ) : (
+          // Flat format (legacy)
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {flatQuestions.map((item) => {
+              const key = getAnswerKey(item.partId, item.question.id);
+              return (
+                <Card key={key} className="relative">
+                  <CardContent className="pt-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
+                        {item.question.id}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-xs ${
+                        item.question.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                      }`}>
+                        {item.question.type === "mc" ? "MC" : "填充"}
+                      </span>
+                    </div>
 
-        {/* Floating submit button for mobile */}
+                    {item.question.type === "mc" && item.question.options ? (
+                      <div className="flex flex-wrap gap-2">
+                        {item.question.options.map((option) => (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => selectMcAnswer(item.partId, item.question.id, option)}
+                            className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
+                              answers[key] === option
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-background text-foreground border-border hover:border-primary/50"
+                            }`}
+                            data-testid={`button-option-${item.question.id}-${option}`}
+                          >
+                            {option}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <Input
+                        placeholder="輸入答案"
+                        value={answers[key] || ""}
+                        onChange={(e) => setTextAnswer(item.partId, item.question.id, e.target.value)}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck="false"
+                        data-testid={`input-text-${item.question.id}`}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
         <div className="fixed bottom-4 left-4 right-4 sm:hidden">
           <Button
             onClick={handleSubmit}
@@ -317,7 +448,7 @@ export default function StudentAnswerSheet() {
             data-testid="button-submit-mobile"
           >
             <Send className="h-4 w-4 mr-2" />
-            提交答案 ({Object.keys(answers).length}/{items.length})
+            提交答案 ({Object.keys(answers).length}/{flatQuestions.length})
           </Button>
         </div>
       </div>
