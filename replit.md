@@ -25,6 +25,7 @@ This application allows:
 - `/admin/create-exam` - Create new exam
 - `/admin/edit-exam/:id` - Edit existing exam
 - `/admin/submissions/:examId` - Submission management with analytics and score editing
+- `/admin/sheet-submissions/:id` - Answer sheet submission analytics and management
 - `/teacher/quick-build` - Quick Answer Sheet Builder for batch MC/fill-in-blank creation
 - `/sheet/:id` - Student answer sheet view with instant grading
 - `/exam/:id` - Student login for specific exam (unique link per exam)
@@ -71,31 +72,54 @@ This application allows:
   - Filter by score range: excellent (≥90), pass (≥60), fail (<60)
 
 ### Quick Answer Sheet Builder (`/teacher/quick-build`)
-A standalone module for rapidly creating auto-grading answer keys without going question-by-question.
+A standalone module for rapidly creating auto-grading answer keys with multi-part exam support.
+
+**Multi-Part Exam Support**:
+- Create exams with multiple parts (e.g., "Part A: Vocabulary Test", "Part B: Fill in the blanks")
+- Each part has independent question numbering (Part A: 1-20, Part B: 1-20)
+- Add, remove, and rename parts dynamically
+- Backward compatible with legacy flat-format answer sheets
 
 **Bulk MC Generator (Tool A)**:
 - Set start/end question numbers and options pattern (A-D or A-E)
 - Paste answer key string (e.g., "ABCDABCD...")
-- Automatically generates MC questions with correct answers
+- Automatically generates MC questions for the active part
 
 **Bulk Fill-in-Blank Generator (Tool B)**:
 - Set start/end question numbers
 - Enter answers one per line
-- Maps each line to corresponding question number
+- Maps each line to corresponding question number in active part
 
 **Features**:
-- Live preview of generated questions
+- Live preview showing all parts and their questions
 - Edit/delete individual items before saving
 - Stores answer sheets with Google Drive PDF link
 - Copy student link for sharing
+- View submissions analytics (button links to admin page)
 
 ### Student Answer Sheet (`/sheet/:id`)
 - iPad-optimized layout with split screen design
 - Login with name, student number, class
+- Multi-part display with section headers for each part
+- Each part shows independent question numbering
 - MC questions show clickable circle buttons (A/B/C/D/E)
 - Fill-in-blank questions show text input boxes
 - View paper button opens linked PDF
-- Instant grading on submit with correct/incorrect indicators
+- Instant grading on submit with correct/incorrect indicators per question
+
+### Answer Sheet Analytics (`/admin/sheet-submissions/:id`)
+- **Analytics Dashboard**:
+  - Total submissions count
+  - Average score, highest score, lowest score
+  - Pass rate (≥60%)
+  - Score distribution chart (10-point buckets)
+  - Per-question correct rate analysis
+- **Submission Management**:
+  - Search by student name or number
+  - Filter by class (J3A/J3B/J3C)
+  - Filter by score range (excellent/pass/fail)
+  - View detailed answer comparison for each submission
+  - Export to CSV
 
 ### 100-Point Scoring System
 - All exams are scored out of 100 points maximum
@@ -119,6 +143,7 @@ A standalone module for rapidly creating auto-grading answer keys without going 
 - **answer_sheet_sessions**: id, title, paper_link, items_json (JSON array of QuestionItem), created_at
 - **answer_sheet_submissions**: id, session_id, student_name, student_number, original_class, answers_json, total_score, max_score, submitted_at
 - **QuestionItem interface**: { id: number, type: 'mc' | 'text', correct: string, options?: string[] }
+- **PartItem interface**: { partId: string, partName: string, questions: QuestionItem[] }
 
 ## API Endpoints
 
