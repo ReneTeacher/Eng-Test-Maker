@@ -1,0 +1,50 @@
+**System Instruction:**
+I need to add a **standalone** "Quick Answer Sheet Builder" module to my existing React app.
+**CRITICAL:** Do NOT refactor or modify any existing logic or global components (like Sidebar/Header) to avoid breaking current features. Only create NEW files.
+
+**The Goal:**
+Allow teachers to rapidly create an auto-grading answer key by pasting text batches (e.g., "ABCD..."), instead of adding questions one by one.
+
+**1. Database Schema (Create New Table: `AnswerSheetSession`):**
+Please create a new model/table.
+- `id`: Primary Key
+- `title`: String
+- `paper_link`: String (URL to the Google Drive PDF/Image)
+- `items_json`: JSON (Stores the array of questions).
+    * *JSON Interface:*
+    ```typescript
+    interface QuestionItem {
+      id: number; // Question Number
+      type: 'mc' | 'text';
+      correct: string;
+      options?: string[]; // e.g. ['A','B','C','D'] for MC
+    }
+    ```
+
+**2. Frontend - Teacher "Bulk Builder" (Route: `/teacher/quick-build`):**
+Create a UI with 2 distinct "Batch Generator" tools to append questions to the list:
+
+* **Tool A: Bulk MC Generator**
+    * Inputs: `Start #`, `End #`, `Options Pattern` (Dropdown: A-D / A-E), `Answer Key String` (Textarea).
+    * *Logic:* Parse the answer string. Assign Char 1 to Start #, Char 2 to Start #+1.
+* **Tool B: Bulk Fill-in-Blank Generator**
+    * Inputs: `Start #`, `End #`, `Answers` (Textarea - one per line).
+    * *Logic:* Map each line to the corresponding question number.
+* **Preview & Save:** Show the generated list. Allow manual deletion/edit. Save to `AnswerSheetSession`.
+
+**3. Frontend - Student View (Route: `/sheet/:id`):**
+* **Layout:** iPad-optimized Split Screen (or Top/Bottom on mobile).
+    * **Left/Top:** Title & a Button/Link to open `paper_link` (e.g., "View Question Paper").
+    * **Right/Bottom:** The Answer Form.
+* **Components:**
+    * If `type === 'mc'`: Show clickable circle buttons (A, B, C, D).
+    * If `type === 'text'`: Show an Input box.
+* **Grading:** On "Submit", match student input vs `items_json.correct`. Show score instantly.
+
+**4. UI Integration (Low Risk Strategy):**
+* **Layout:** Check if a global `<Layout>` or `<Sidebar>` component exists. If yes, wrap the new pages with it so they look consistent.
+* **Navigation:** **Do NOT** programmatically edit the global Sidebar/Header code (to avoid breaking it). I will manually add the link later. Just make the routes accessible via URL.
+* **Styling:** Use existing Tailwind CSS classes/colors to match the current theme.
+
+**Action:**
+Implement the Database Schema and the Frontend pages now.
