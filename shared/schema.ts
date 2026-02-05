@@ -174,12 +174,19 @@ export const answerSheetSessions = pgTable("answer_sheet_sessions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// QuestionItem interface for the items_json field
+// QuestionItem interface for individual questions within a part
 export interface QuestionItem {
-  id: number; // Question Number
+  id: number; // Question Number within the part (starts from 1)
   type: 'mc' | 'text';
   correct: string;
   options?: string[]; // e.g. ['A','B','C','D'] for MC
+}
+
+// PartItem interface for multi-part answer sheets
+export interface PartItem {
+  partId: string; // Unique identifier for the part
+  partName: string; // e.g. "Part A: Test 1", "Part B: Test 2"
+  questions: QuestionItem[]; // Questions within this part (each with id starting from 1)
 }
 
 export const answerSheetSubmissions = pgTable("answer_sheet_submissions", {
