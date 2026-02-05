@@ -25,6 +25,8 @@ This application allows:
 - `/admin/create-exam` - Create new exam
 - `/admin/edit-exam/:id` - Edit existing exam
 - `/admin/submissions/:examId` - Submission management with analytics and score editing
+- `/teacher/quick-build` - Quick Answer Sheet Builder for batch MC/fill-in-blank creation
+- `/sheet/:id` - Student answer sheet view with instant grading
 - `/exam/:id` - Student login for specific exam (unique link per exam)
 - `/exam/:id/test` - Student exam page
 - `/thank-you` - Score display after submission
@@ -68,6 +70,33 @@ This application allows:
   - Filter by original class (J3A/J3B/J3C)
   - Filter by score range: excellent (≥90), pass (≥60), fail (<60)
 
+### Quick Answer Sheet Builder (`/teacher/quick-build`)
+A standalone module for rapidly creating auto-grading answer keys without going question-by-question.
+
+**Bulk MC Generator (Tool A)**:
+- Set start/end question numbers and options pattern (A-D or A-E)
+- Paste answer key string (e.g., "ABCDABCD...")
+- Automatically generates MC questions with correct answers
+
+**Bulk Fill-in-Blank Generator (Tool B)**:
+- Set start/end question numbers
+- Enter answers one per line
+- Maps each line to corresponding question number
+
+**Features**:
+- Live preview of generated questions
+- Edit/delete individual items before saving
+- Stores answer sheets with Google Drive PDF link
+- Copy student link for sharing
+
+### Student Answer Sheet (`/sheet/:id`)
+- iPad-optimized layout with split screen design
+- Login with name, student number, class
+- MC questions show clickable circle buttons (A/B/C/D/E)
+- Fill-in-blank questions show text input boxes
+- View paper button opens linked PDF
+- Instant grading on submit with correct/incorrect indicators
+
 ### 100-Point Scoring System
 - All exams are scored out of 100 points maximum
 - **Vocabulary Dictation**: Points distributed across questions (50% Word, 25% POS, 25% Meaning)
@@ -85,6 +114,11 @@ This application allows:
 - **text_sentences**: id, exam_id, sentence_order, correct_sentence, max_score (default: 10)
 - **text_submissions**: id, exam_id, student_name, student_number, original_class, mixed_class, student_text, total_score, max_score, feedback, submitted_at
 - **text_answer_details**: id, submission_id, sentence_id, student_sentence, earned_score, feedback
+
+### Answer Sheet Builder
+- **answer_sheet_sessions**: id, title, paper_link, items_json (JSON array of QuestionItem), created_at
+- **answer_sheet_submissions**: id, session_id, student_name, student_number, original_class, answers_json, total_score, max_score, submitted_at
+- **QuestionItem interface**: { id: number, type: 'mc' | 'text', correct: string, options?: string[] }
 
 ## API Endpoints
 
@@ -105,6 +139,13 @@ This application allows:
 - `PATCH /api/text-submissions/:id` - Update text submission score (admin adjust)
 - `GET /api/exams/:id/analytics` - Get analytics for an exam (stats, distribution, difficulty analysis)
 - `GET /api/export?examId=X` - Export to Excel
+- `GET /api/answer-sheets` - List all answer sheet sessions
+- `GET /api/answer-sheets/:id` - Get answer sheet by ID
+- `POST /api/answer-sheets` - Create answer sheet (body: { title, paperLink, items })
+- `PATCH /api/answer-sheets/:id` - Update answer sheet
+- `DELETE /api/answer-sheets/:id` - Delete answer sheet
+- `POST /api/answer-sheets/:id/submit` - Submit student answers for grading
+- `GET /api/answer-sheets/:id/submissions` - Get submissions for an answer sheet
 
 ## Running the Application
 
