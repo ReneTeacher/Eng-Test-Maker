@@ -16,7 +16,8 @@ import {
   FileText, 
   Trash2,
   Copy,
-  Eye
+  Eye,
+  Zap
 } from "lucide-react";
 import type { Exam, StudentSubmission } from "@shared/schema";
 
@@ -112,6 +113,12 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/teacher/quick-build">
+              <Button variant="outline" data-testid="button-quick-build">
+                <Zap className="w-4 h-4 mr-2" />
+                快速答案卷建立器
+              </Button>
+            </Link>
             <Link href="/admin/create-exam">
               <Button data-testid="button-create-exam">
                 <Plus className="w-4 h-4 mr-2" />
