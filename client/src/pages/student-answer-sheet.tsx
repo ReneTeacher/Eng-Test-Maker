@@ -192,11 +192,6 @@ export default function StudentAnswerSheet() {
                           <span className={isCorrect ? "text-green-600" : "text-red-600"}>
                             {studentAnswer}
                           </span>
-                          {!isCorrect && (
-                            <span className="text-muted-foreground text-sm">
-                              (正確: {q.correct})
-                            </span>
-                          )}
                         </div>
                       );
                     })}
@@ -219,11 +214,6 @@ export default function StudentAnswerSheet() {
                       <span className={isCorrect ? "text-green-600" : "text-red-600"}>
                         {studentAnswer}
                       </span>
-                      {!isCorrect && (
-                        <span className="text-muted-foreground text-sm">
-                          (正確: {item.question.correct})
-                        </span>
-                      )}
                     </div>
                   );
                 })
