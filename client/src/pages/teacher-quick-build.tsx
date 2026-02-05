@@ -27,7 +27,7 @@ export default function TeacherQuickBuild() {
   
   const [mcStartNum, setMcStartNum] = useState(1);
   const [mcEndNum, setMcEndNum] = useState(10);
-  const [mcOptions, setMcOptions] = useState<"A-D" | "A-E">("A-D");
+  const [mcOptions, setMcOptions] = useState<"A-B" | "A-C" | "A-D" | "A-E">("A-D");
   const [mcAnswerString, setMcAnswerString] = useState("");
   
   const [fibStartNum, setFibStartNum] = useState(1);
@@ -104,7 +104,13 @@ export default function TeacherQuickBuild() {
       return;
     }
     
-    const options = mcOptions === "A-D" ? ["A", "B", "C", "D"] : ["A", "B", "C", "D", "E"];
+    const optionsMap: Record<string, string[]> = {
+      "A-B": ["A", "B"],
+      "A-C": ["A", "B", "C"],
+      "A-D": ["A", "B", "C", "D"],
+      "A-E": ["A", "B", "C", "D", "E"],
+    };
+    const options = optionsMap[mcOptions];
     const newItems: QuestionItem[] = [];
     
     for (let i = 0; i < count; i++) {
@@ -338,11 +344,13 @@ export default function TeacherQuickBuild() {
                   </div>
                   <div>
                     <Label>選項模式</Label>
-                    <Select value={mcOptions} onValueChange={(v) => setMcOptions(v as "A-D" | "A-E")}>
+                    <Select value={mcOptions} onValueChange={(v) => setMcOptions(v as "A-B" | "A-C" | "A-D" | "A-E")}>
                       <SelectTrigger data-testid="select-mc-options">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="A-B">A-B (2選項)</SelectItem>
+                        <SelectItem value="A-C">A-C (3選項)</SelectItem>
                         <SelectItem value="A-D">A-D (4選項)</SelectItem>
                         <SelectItem value="A-E">A-E (5選項)</SelectItem>
                       </SelectContent>

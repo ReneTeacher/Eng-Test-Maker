@@ -195,6 +195,7 @@ export const answerSheetSubmissions = pgTable("answer_sheet_submissions", {
   studentName: text("student_name").notNull(),
   studentNumber: integer("student_number").notNull(),
   originalClass: text("original_class").notNull(),
+  mixedClass: text("mixed_class").notNull().default(""), // 走班（英文1班、英文2班等）
   answersJson: text("answers_json").notNull(), // JSON string of student answers
   totalScore: integer("total_score").notNull(),
   maxScore: integer("max_score").notNull(),

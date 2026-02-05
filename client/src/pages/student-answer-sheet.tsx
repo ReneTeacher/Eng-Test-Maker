@@ -26,6 +26,7 @@ export default function StudentAnswerSheet() {
   const [studentName, setStudentName] = useState("");
   const [studentNumber, setStudentNumber] = useState("");
   const [originalClass, setOriginalClass] = useState("");
+  const [mixedClass, setMixedClass] = useState("");
   
   const [answers, setAnswers] = useState<Record<string, string>>({});
   
@@ -77,6 +78,7 @@ export default function StudentAnswerSheet() {
         studentName,
         studentNumber: parseInt(studentNumber),
         originalClass,
+        mixedClass,
         answers,
       });
       return response.json();
@@ -92,7 +94,7 @@ export default function StudentAnswerSheet() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!studentName.trim() || !studentNumber || !originalClass) {
+    if (!studentName.trim() || !studentNumber || !originalClass || !mixedClass) {
       toast({ title: "請填寫所有欄位", variant: "destructive" });
       return;
     }
@@ -164,8 +166,9 @@ export default function StudentAnswerSheet() {
             </div>
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">學生: {studentName}</p>
-              <p className="text-sm text-muted-foreground">學號: {studentNumber}</p>
-              <p className="text-sm text-muted-foreground">班級: {originalClass}</p>
+              <p className="text-sm text-muted-foreground">班號: {studentNumber}</p>
+              <p className="text-sm text-muted-foreground">原班: {originalClass}</p>
+              <p className="text-sm text-muted-foreground">走班: {mixedClass}</p>
             </div>
             
             <div className="mt-6 text-left max-h-64 overflow-y-auto border rounded-md p-3">
@@ -268,15 +271,30 @@ export default function StudentAnswerSheet() {
                 />
               </div>
               <div>
-                <Label htmlFor="class">班級</Label>
+                <Label htmlFor="class">原班</Label>
                 <Select value={originalClass} onValueChange={setOriginalClass}>
                   <SelectTrigger data-testid="select-class">
-                    <SelectValue placeholder="選擇班級" />
+                    <SelectValue placeholder="選擇原班" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="J3A">J3A</SelectItem>
                     <SelectItem value="J3B">J3B</SelectItem>
                     <SelectItem value="J3C">J3C</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="mixedClass">走班</Label>
+                <Select value={mixedClass} onValueChange={setMixedClass}>
+                  <SelectTrigger data-testid="select-mixed-class">
+                    <SelectValue placeholder="選擇走班" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="英文1班">英文1班</SelectItem>
+                    <SelectItem value="英文2班">英文2班</SelectItem>
+                    <SelectItem value="英文3班">英文3班</SelectItem>
+                    <SelectItem value="英文4班">英文4班</SelectItem>
+                    <SelectItem value="英文5班">英文5班</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
