@@ -8,10 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Plus, Trash2, Save, Copy, ExternalLink, Eye } from "lucide-react";
-import type { QuestionItem, AnswerSheetSession } from "@shared/schema";
+import { ArrowLeft, Plus, Trash2, Save, Copy, Eye, BarChart3, Edit2 } from "lucide-react";
+import type { QuestionItem, PartItem, AnswerSheetSession } from "@shared/schema";
 
 export default function TeacherQuickBuild() {
   const [, navigate] = useLocation();
@@ -19,27 +20,26 @@ export default function TeacherQuickBuild() {
   
   const [title, setTitle] = useState("");
   const [paperLink, setPaperLink] = useState("");
-  const [items, setItems] = useState<QuestionItem[]>([]);
+  const [parts, setParts] = useState<PartItem[]>([
+    { partId: "part-1", partName: "Part A", questions: [] }
+  ]);
+  const [activePartId, setActivePartId] = useState("part-1");
   
-  // Bulk MC Generator state
   const [mcStartNum, setMcStartNum] = useState(1);
   const [mcEndNum, setMcEndNum] = useState(10);
   const [mcOptions, setMcOptions] = useState<"A-D" | "A-E">("A-D");
   const [mcAnswerString, setMcAnswerString] = useState("");
   
-  // Bulk Fill-in-Blank Generator state
   const [fibStartNum, setFibStartNum] = useState(1);
   const [fibEndNum, setFibEndNum] = useState(10);
   const [fibAnswers, setFibAnswers] = useState("");
 
-  // Fetch existing answer sheets
   const { data: sheets = [] } = useQuery<AnswerSheetSession[]>({
     queryKey: ["/api/answer-sheets"],
   });
 
-  // Create answer sheet mutation
   const createMutation = useMutation({
-    mutationFn: async (data: { title: string; paperLink: string; items: QuestionItem[] }) => {
+    mutationFn: async (data: { title: string; paperLink: string; parts: PartItem[] }) => {
       const response = await apiRequest("POST", "/api/answer-sheets", data);
       return response.json();
     },
@@ -48,14 +48,14 @@ export default function TeacherQuickBuild() {
       toast({ title: "答案卷已建立", description: "可以分享連結給學生了" });
       setTitle("");
       setPaperLink("");
-      setItems([]);
+      setParts([{ partId: "part-1", partName: "Part A", questions: [] }]);
+      setActivePartId("part-1");
     },
     onError: () => {
       toast({ title: "建立失敗", variant: "destructive" });
     },
   });
 
-  // Delete answer sheet mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       await apiRequest("DELETE", `/api/answer-sheets/${id}`);
@@ -66,8 +66,36 @@ export default function TeacherQuickBuild() {
     },
   });
 
-  // Generate MC questions from answer string
+  const activePart = parts.find(p => p.partId === activePartId);
+
+  const addPart = () => {
+    const newPartId = `part-${Date.now()}`;
+    const partLetter = String.fromCharCode(65 + parts.length);
+    setParts([...parts, { partId: newPartId, partName: `Part ${partLetter}`, questions: [] }]);
+    setActivePartId(newPartId);
+    toast({ title: "已新增 Part" });
+  };
+
+  const removePart = (partId: string) => {
+    if (parts.length <= 1) {
+      toast({ title: "至少需要一個 Part", variant: "destructive" });
+      return;
+    }
+    const newParts = parts.filter(p => p.partId !== partId);
+    setParts(newParts);
+    if (activePartId === partId) {
+      setActivePartId(newParts[0].partId);
+    }
+    toast({ title: "已刪除 Part" });
+  };
+
+  const updatePartName = (partId: string, newName: string) => {
+    setParts(parts.map(p => p.partId === partId ? { ...p, partName: newName } : p));
+  };
+
   const generateMcQuestions = () => {
+    if (!activePart) return;
+    
     const answers = mcAnswerString.toUpperCase().replace(/[^A-E]/g, "");
     const count = mcEndNum - mcStartNum + 1;
     
@@ -96,18 +124,18 @@ export default function TeacherQuickBuild() {
       });
     }
     
-    // Merge with existing items (replace if same id, otherwise add)
     const existingIds = new Set(newItems.map(item => item.id));
-    const filtered = items.filter(item => !existingIds.has(item.id));
+    const filtered = activePart.questions.filter(item => !existingIds.has(item.id));
     const merged = [...filtered, ...newItems].sort((a, b) => a.id - b.id);
-    setItems(merged);
     
+    setParts(parts.map(p => p.partId === activePartId ? { ...p, questions: merged } : p));
     toast({ title: "已生成", description: `${newItems.length} 題選擇題` });
     setMcAnswerString("");
   };
 
-  // Generate Fill-in-Blank questions from answers
   const generateFibQuestions = () => {
+    if (!activePart) return;
+    
     const lines = fibAnswers.split("\n").map(line => line.trim()).filter(line => line.length > 0);
     const count = fibEndNum - fibStartNum + 1;
     
@@ -127,29 +155,31 @@ export default function TeacherQuickBuild() {
       });
     }
     
-    // Merge with existing items
     const existingIds = new Set(newItems.map(item => item.id));
-    const filtered = items.filter(item => !existingIds.has(item.id));
+    const filtered = activePart.questions.filter(item => !existingIds.has(item.id));
     const merged = [...filtered, ...newItems].sort((a, b) => a.id - b.id);
-    setItems(merged);
     
+    setParts(parts.map(p => p.partId === activePartId ? { ...p, questions: merged } : p));
     toast({ title: "已生成", description: `${newItems.length} 題填充題` });
     setFibAnswers("");
   };
 
-  // Remove a single item
-  const removeItem = (id: number) => {
-    setItems(items.filter(item => item.id !== id));
-  };
-
-  // Edit an item's correct answer
-  const editItemAnswer = (id: number, newAnswer: string) => {
-    setItems(items.map(item => 
-      item.id === id ? { ...item, correct: newAnswer } : item
+  const removeItem = (partId: string, questionId: number) => {
+    setParts(parts.map(p => 
+      p.partId === partId 
+        ? { ...p, questions: p.questions.filter(q => q.id !== questionId) }
+        : p
     ));
   };
 
-  // Save the answer sheet
+  const editItemAnswer = (partId: string, questionId: number, newAnswer: string) => {
+    setParts(parts.map(p => 
+      p.partId === partId 
+        ? { ...p, questions: p.questions.map(q => q.id === questionId ? { ...q, correct: newAnswer } : q) }
+        : p
+    ));
+  };
+
   const handleSave = () => {
     if (!title.trim()) {
       toast({ title: "請輸入標題", variant: "destructive" });
@@ -159,19 +189,33 @@ export default function TeacherQuickBuild() {
       toast({ title: "請輸入試卷連結", variant: "destructive" });
       return;
     }
-    if (items.length === 0) {
+    const totalQuestions = parts.reduce((sum, p) => sum + p.questions.length, 0);
+    if (totalQuestions === 0) {
       toast({ title: "請至少添加一題", variant: "destructive" });
       return;
     }
     
-    createMutation.mutate({ title, paperLink, items });
+    createMutation.mutate({ title, paperLink, parts });
   };
 
-  // Copy student link
   const copyLink = (id: number) => {
     const url = `${window.location.origin}/sheet/${id}`;
     navigator.clipboard.writeText(url);
     toast({ title: "已複製連結" });
+  };
+
+  const totalQuestions = parts.reduce((sum, p) => sum + p.questions.length, 0);
+
+  const getItemCount = (sheet: AnswerSheetSession) => {
+    try {
+      const parsed = JSON.parse(sheet.itemsJson);
+      if (Array.isArray(parsed) && parsed.length > 0 && 'partId' in parsed[0]) {
+        return (parsed as PartItem[]).reduce((sum, p) => sum + p.questions.length, 0);
+      }
+      return (parsed as QuestionItem[]).length;
+    } catch {
+      return 0;
+    }
   };
 
   return (
@@ -183,14 +227,12 @@ export default function TeacherQuickBuild() {
           </Button>
           <div>
             <h1 className="text-2xl font-bold">快速答案卷建立器</h1>
-            <p className="text-muted-foreground">批量建立選擇題和填充題答案卷</p>
+            <p className="text-muted-foreground">支援多 Part 結構，每個 Part 獨立題號</p>
           </div>
         </div>
 
         <div className="grid lg:grid-cols-2 gap-6">
-          {/* Left: Build Tools */}
           <div className="space-y-4">
-            {/* Basic Info */}
             <Card>
               <CardHeader>
                 <CardTitle>基本資料</CardTitle>
@@ -219,11 +261,58 @@ export default function TeacherQuickBuild() {
               </CardContent>
             </Card>
 
-            {/* Tool A: Bulk MC Generator */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Part 管理</CardTitle>
+                  <CardDescription>每個 Part 有獨立的題號 (1, 2, 3...)</CardDescription>
+                </div>
+                <Button size="sm" onClick={addPart} data-testid="button-add-part">
+                  <Plus className="h-4 w-4 mr-1" />
+                  新增 Part
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <Tabs value={activePartId} onValueChange={setActivePartId}>
+                  <TabsList className="flex flex-wrap h-auto gap-1">
+                    {parts.map((part) => (
+                      <TabsTrigger key={part.partId} value={part.partId} className="relative" data-testid={`tab-${part.partId}`}>
+                        {part.partName} ({part.questions.length})
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                  {parts.map((part) => (
+                    <TabsContent key={part.partId} value={part.partId} className="space-y-4 mt-4">
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0">Part 名稱:</Label>
+                        <Input
+                          value={part.partName}
+                          onChange={(e) => updatePartName(part.partId, e.target.value)}
+                          placeholder="例如: Part A: Vocabulary"
+                          data-testid={`input-part-name-${part.partId}`}
+                        />
+                        {parts.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removePart(part.partId)}
+                            data-testid={`button-remove-part-${part.partId}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TabsContent>
+                  ))}
+                </Tabs>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader>
                 <CardTitle>選擇題批量生成器</CardTitle>
-                <CardDescription>輸入答案字串，自動生成多題選擇題</CardDescription>
+                <CardDescription>為 "{activePart?.partName}" 生成選擇題</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-3 gap-4">
@@ -272,16 +361,15 @@ export default function TeacherQuickBuild() {
                 </div>
                 <Button onClick={generateMcQuestions} className="w-full" data-testid="button-generate-mc">
                   <Plus className="h-4 w-4 mr-2" />
-                  生成選擇題
+                  生成選擇題到 {activePart?.partName}
                 </Button>
               </CardContent>
             </Card>
 
-            {/* Tool B: Bulk Fill-in-Blank Generator */}
             <Card>
               <CardHeader>
                 <CardTitle>填充題批量生成器</CardTitle>
-                <CardDescription>每行一個答案，自動對應題號</CardDescription>
+                <CardDescription>為 "{activePart?.partName}" 生成填充題</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -318,23 +406,22 @@ export default function TeacherQuickBuild() {
                 </div>
                 <Button onClick={generateFibQuestions} className="w-full" data-testid="button-generate-fib">
                   <Plus className="h-4 w-4 mr-2" />
-                  生成填充題
+                  生成填充題到 {activePart?.partName}
                 </Button>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right: Preview & Save */}
           <div className="space-y-4">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between gap-4">
                 <div>
                   <CardTitle>題目預覽</CardTitle>
-                  <CardDescription>共 {items.length} 題</CardDescription>
+                  <CardDescription>共 {parts.length} 個 Part，{totalQuestions} 題</CardDescription>
                 </div>
                 <Button 
                   onClick={handleSave} 
-                  disabled={createMutation.isPending || items.length === 0}
+                  disabled={createMutation.isPending || totalQuestions === 0}
                   data-testid="button-save"
                 >
                   <Save className="h-4 w-4 mr-2" />
@@ -342,58 +429,64 @@ export default function TeacherQuickBuild() {
                 </Button>
               </CardHeader>
               <CardContent>
-                {items.length === 0 ? (
+                {totalQuestions === 0 ? (
                   <p className="text-muted-foreground text-center py-8">尚未添加任何題目</p>
                 ) : (
-                  <div className="max-h-[500px] overflow-y-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-16">題號</TableHead>
-                          <TableHead className="w-24">類型</TableHead>
-                          <TableHead>正確答案</TableHead>
-                          <TableHead className="w-16"></TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {items.map((item) => (
-                          <TableRow key={item.id}>
-                            <TableCell className="font-medium">{item.id}</TableCell>
-                            <TableCell>
-                              <span className={`px-2 py-1 rounded text-xs ${
-                                item.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                              }`}>
-                                {item.type === "mc" ? "選擇題" : "填充題"}
-                              </span>
-                            </TableCell>
-                            <TableCell>
-                              <Input
-                                value={item.correct}
-                                onChange={(e) => editItemAnswer(item.id, e.target.value)}
-                                className="h-8"
-                                data-testid={`input-answer-${item.id}`}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeItem(item.id)}
-                                data-testid={`button-remove-${item.id}`}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  <div className="max-h-[500px] overflow-y-auto space-y-4">
+                    {parts.map((part) => (
+                      part.questions.length > 0 && (
+                        <div key={part.partId}>
+                          <h4 className="font-semibold text-sm mb-2 text-primary">{part.partName}</h4>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="w-16">題號</TableHead>
+                                <TableHead className="w-24">類型</TableHead>
+                                <TableHead>正確答案</TableHead>
+                                <TableHead className="w-16"></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {part.questions.map((item) => (
+                                <TableRow key={`${part.partId}-${item.id}`}>
+                                  <TableCell className="font-medium">{item.id}</TableCell>
+                                  <TableCell>
+                                    <span className={`px-2 py-1 rounded text-xs ${
+                                      item.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                                    }`}>
+                                      {item.type === "mc" ? "選擇題" : "填充題"}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input
+                                      value={item.correct}
+                                      onChange={(e) => editItemAnswer(part.partId, item.id, e.target.value)}
+                                      className="h-8"
+                                      data-testid={`input-answer-${part.partId}-${item.id}`}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => removeItem(part.partId, item.id)}
+                                      data-testid={`button-remove-${part.partId}-${item.id}`}
+                                    >
+                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )
+                    ))}
                   </div>
                 )}
               </CardContent>
             </Card>
 
-            {/* Existing Answer Sheets */}
             <Card>
               <CardHeader>
                 <CardTitle>已建立的答案卷</CardTitle>
@@ -404,7 +497,7 @@ export default function TeacherQuickBuild() {
                 ) : (
                   <div className="space-y-2">
                     {sheets.map((sheet) => {
-                      const itemCount = JSON.parse(sheet.itemsJson).length;
+                      const itemCount = getItemCount(sheet);
                       return (
                         <div key={sheet.id} className="flex items-center justify-between p-3 border rounded-md">
                           <div>
@@ -433,11 +526,11 @@ export default function TeacherQuickBuild() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => window.open(sheet.paperLink, "_blank")}
-                              title="查看試卷"
-                              data-testid={`button-paper-${sheet.id}`}
+                              onClick={() => navigate(`/admin/sheet-submissions/${sheet.id}`)}
+                              title="查看提交紀錄"
+                              data-testid={`button-submissions-${sheet.id}`}
                             >
-                              <ExternalLink className="h-4 w-4" />
+                              <BarChart3 className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="ghost"
