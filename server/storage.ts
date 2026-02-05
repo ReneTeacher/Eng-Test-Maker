@@ -1,8 +1,10 @@
 import { 
   exams, questions, studentSubmissions, answerDetails, textSubmissions, textSentences, textAnswerDetails,
+  answerSheetSessions, answerSheetSubmissions,
   type Exam, type Question, type StudentSubmission, type AnswerDetail, type TextSubmission, type TextSentence, type TextAnswerDetail,
   type InsertExam, type InsertQuestion, type InsertSubmission, type InsertAnswerDetail, type InsertTextSentence, type InsertTextAnswerDetail,
-  type ExamWithQuestions, type ExamWithSentences
+  type ExamWithQuestions, type ExamWithSentences,
+  type AnswerSheetSession, type AnswerSheetSubmission, type InsertAnswerSheetSession, type InsertAnswerSheetSubmission
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -268,6 +270,41 @@ export class DatabaseStorage implements IStorage {
   // Update text answer detail
   async updateTextAnswerDetail(id: number, data: Partial<TextAnswerDetail>): Promise<void> {
     await db.update(textAnswerDetails).set(data).where(eq(textAnswerDetails.id, id));
+  }
+
+  // Answer Sheet Sessions
+  async createAnswerSheetSession(session: InsertAnswerSheetSession): Promise<AnswerSheetSession> {
+    const [created] = await db.insert(answerSheetSessions).values(session).returning();
+    return created;
+  }
+
+  async getAnswerSheetSessions(): Promise<AnswerSheetSession[]> {
+    return db.select().from(answerSheetSessions).orderBy(desc(answerSheetSessions.createdAt));
+  }
+
+  async getAnswerSheetSessionById(id: number): Promise<AnswerSheetSession | undefined> {
+    const [session] = await db.select().from(answerSheetSessions).where(eq(answerSheetSessions.id, id));
+    return session;
+  }
+
+  async updateAnswerSheetSession(id: number, data: Partial<InsertAnswerSheetSession>): Promise<AnswerSheetSession | undefined> {
+    const [updated] = await db.update(answerSheetSessions).set(data).where(eq(answerSheetSessions.id, id)).returning();
+    return updated;
+  }
+
+  async deleteAnswerSheetSession(id: number): Promise<boolean> {
+    const result = await db.delete(answerSheetSessions).where(eq(answerSheetSessions.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Answer Sheet Submissions
+  async createAnswerSheetSubmission(submission: InsertAnswerSheetSubmission): Promise<AnswerSheetSubmission> {
+    const [created] = await db.insert(answerSheetSubmissions).values(submission).returning();
+    return created;
+  }
+
+  async getAnswerSheetSubmissionsBySessionId(sessionId: number): Promise<AnswerSheetSubmission[]> {
+    return db.select().from(answerSheetSubmissions).where(eq(answerSheetSubmissions.sessionId, sessionId)).orderBy(desc(answerSheetSubmissions.submittedAt));
   }
 }
 

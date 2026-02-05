@@ -1118,5 +1118,165 @@ Respond in this exact JSON format only, no other text:
     }
   });
 
+  // ==================== Answer Sheet Builder Routes ====================
+
+  // Get all answer sheet sessions
+  app.get("/api/answer-sheets", async (req, res) => {
+    try {
+      const sessions = await storage.getAnswerSheetSessions();
+      res.json(sessions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch answer sheets" });
+    }
+  });
+
+  // Get single answer sheet session
+  app.get("/api/answer-sheets/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAnswerSheetSessionById(id);
+      if (!session) {
+        res.status(404).json({ message: "Answer sheet not found" });
+        return;
+      }
+      res.json(session);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch answer sheet" });
+    }
+  });
+
+  // Create answer sheet session
+  app.post("/api/answer-sheets", async (req, res) => {
+    try {
+      const { title, paperLink, items } = req.body;
+      
+      if (!title || typeof title !== "string" || !title.trim()) {
+        res.status(400).json({ message: "Title is required" });
+        return;
+      }
+      
+      if (!paperLink || typeof paperLink !== "string") {
+        res.status(400).json({ message: "Paper link is required" });
+        return;
+      }
+      
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        res.status(400).json({ message: "At least one question is required" });
+        return;
+      }
+
+      const session = await storage.createAnswerSheetSession({
+        title: title.trim(),
+        paperLink: paperLink.trim(),
+        itemsJson: JSON.stringify(items),
+      });
+
+      res.json(session);
+    } catch (error) {
+      console.error("Create answer sheet error:", error);
+      res.status(500).json({ message: "Failed to create answer sheet" });
+    }
+  });
+
+  // Update answer sheet session
+  app.patch("/api/answer-sheets/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { title, paperLink, items } = req.body;
+
+      const updateData: any = {};
+      if (title) updateData.title = title.trim();
+      if (paperLink) updateData.paperLink = paperLink.trim();
+      if (items) updateData.itemsJson = JSON.stringify(items);
+
+      const updated = await storage.updateAnswerSheetSession(id, updateData);
+      if (!updated) {
+        res.status(404).json({ message: "Answer sheet not found" });
+        return;
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to update answer sheet" });
+    }
+  });
+
+  // Delete answer sheet session
+  app.delete("/api/answer-sheets/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteAnswerSheetSession(id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete answer sheet" });
+    }
+  });
+
+  // Submit answer sheet answers
+  app.post("/api/answer-sheets/:id/submit", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      const { studentName, studentNumber, originalClass, answers } = req.body;
+
+      if (!studentName || !studentNumber || !originalClass || !answers) {
+        res.status(400).json({ message: "Missing required fields" });
+        return;
+      }
+
+      const session = await storage.getAnswerSheetSessionById(sessionId);
+      if (!session) {
+        res.status(404).json({ message: "Answer sheet not found" });
+        return;
+      }
+
+      const items = JSON.parse(session.itemsJson) as { id: number; type: string; correct: string; options?: string[] }[];
+      
+      // Calculate score
+      let totalScore = 0;
+      const maxScore = items.length;
+      
+      for (const item of items) {
+        const studentAnswer = answers[item.id];
+        if (studentAnswer) {
+          const correct = item.correct.trim().toLowerCase();
+          const student = String(studentAnswer).trim().toLowerCase();
+          if (correct === student) {
+            totalScore++;
+          }
+        }
+      }
+
+      const submission = await storage.createAnswerSheetSubmission({
+        sessionId,
+        studentName,
+        studentNumber: parseInt(studentNumber),
+        originalClass,
+        answersJson: JSON.stringify(answers),
+        totalScore,
+        maxScore,
+      });
+
+      res.json({
+        submissionId: submission.id,
+        totalScore,
+        maxScore,
+        percentage: Math.round((totalScore / maxScore) * 100),
+      });
+    } catch (error) {
+      console.error("Submit answer sheet error:", error);
+      res.status(500).json({ message: "Failed to submit answers" });
+    }
+  });
+
+  // Get submissions for an answer sheet
+  app.get("/api/answer-sheets/:id/submissions", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      const submissions = await storage.getAnswerSheetSubmissionsBySessionId(sessionId);
+      res.json(submissions);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch submissions" });
+    }
+  });
+
   return httpServer;
 }
