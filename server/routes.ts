@@ -1228,7 +1228,7 @@ Respond in this exact JSON format only, no other text:
   app.post("/api/answer-sheets/:id/submit", async (req, res) => {
     try {
       const sessionId = parseInt(req.params.id);
-      const { studentName, studentNumber, originalClass, answers } = req.body;
+      const { studentName, studentNumber, originalClass, mixedClass, answers } = req.body;
 
       if (!studentName || !studentNumber || !originalClass || !answers) {
         res.status(400).json({ message: "Missing required fields" });
@@ -1265,11 +1265,23 @@ Respond in this exact JSON format only, no other text:
         }
       }
       
-      // Calculate score - answers format: { "partId:questionId": answer } or { "questionId": answer }
+      // Calculate score - 100-point scale with automatic distribution
+      // answers format: { "partId:questionId": answer } or { "questionId": answer }
+      const totalQuestions = allQuestions.length;
+      const maxScore = 100; // Always 100 points
+      
+      // Calculate points per question - distribute evenly, handle remainder
+      const basePoints = Math.floor(100 / totalQuestions);
+      const remainder = 100 - (basePoints * totalQuestions);
+      
       let totalScore = 0;
-      const maxScore = allQuestions.length;
+      let questionIndex = 0;
       
       for (const { partId, question } of allQuestions) {
+        // First 'remainder' questions get 1 extra point
+        const pointsForThis = basePoints + (questionIndex < remainder ? 1 : 0);
+        questionIndex++;
+        
         // Try both key formats
         const key1 = partId ? `${partId}:${question.id}` : String(question.id);
         const key2 = String(question.id);
@@ -1279,7 +1291,7 @@ Respond in this exact JSON format only, no other text:
           const correct = question.correct.trim().toLowerCase();
           const student = String(studentAnswer).trim().toLowerCase();
           if (correct === student) {
-            totalScore++;
+            totalScore += pointsForThis;
           }
         }
       }
@@ -1289,6 +1301,7 @@ Respond in this exact JSON format only, no other text:
         studentName,
         studentNumber: parseInt(studentNumber),
         originalClass,
+        mixedClass: mixedClass || "",
         answersJson: JSON.stringify(answers),
         totalScore,
         maxScore,
@@ -1314,6 +1327,70 @@ Respond in this exact JSON format only, no other text:
       res.json(submissions);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch submissions" });
+    }
+  });
+
+  // Export answer sheet submissions to Excel
+  app.get("/api/answer-sheets/:id/export-excel", async (req, res) => {
+    try {
+      const sessionId = parseInt(req.params.id);
+      const session = await storage.getAnswerSheetSessionById(sessionId);
+      if (!session) {
+        res.status(404).json({ message: "Answer sheet not found" });
+        return;
+      }
+
+      const submissions = await storage.getAnswerSheetSubmissionsBySessionId(sessionId);
+      
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.default.Workbook();
+      const worksheet = workbook.addWorksheet("提交紀錄");
+      
+      // Set columns
+      worksheet.columns = [
+        { header: "姓名", key: "name", width: 15 },
+        { header: "班號", key: "number", width: 10 },
+        { header: "原班", key: "originalClass", width: 10 },
+        { header: "走班", key: "mixedClass", width: 12 },
+        { header: "得分", key: "score", width: 10 },
+        { header: "滿分", key: "maxScore", width: 10 },
+        { header: "百分比", key: "percentage", width: 10 },
+        { header: "提交時間", key: "submittedAt", width: 20 },
+      ];
+      
+      // Style header row
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE0E0E0' }
+      };
+      
+      // Add data rows
+      for (const sub of submissions) {
+        const percentage = Math.round((sub.totalScore / sub.maxScore) * 100);
+        worksheet.addRow({
+          name: sub.studentName,
+          number: sub.studentNumber,
+          originalClass: sub.originalClass,
+          mixedClass: sub.mixedClass || "",
+          score: sub.totalScore,
+          maxScore: sub.maxScore,
+          percentage: `${percentage}%`,
+          submittedAt: new Date(sub.submittedAt).toLocaleString("zh-TW"),
+        });
+      }
+      
+      // Set response headers for Excel download
+      const filename = encodeURIComponent(`${session.title}-提交紀錄.xlsx`);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${filename}`);
+      
+      await workbook.xlsx.write(res);
+      res.end();
+    } catch (error) {
+      console.error("Export Excel error:", error);
+      res.status(500).json({ message: "Failed to export Excel" });
     }
   });
 

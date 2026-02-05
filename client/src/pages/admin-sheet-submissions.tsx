@@ -166,25 +166,7 @@ export default function AdminSheetSubmissions() {
   }, [submissions, flatQuestions]);
 
   const handleExport = () => {
-    const headers = ["姓名", "學號", "班級", "得分", "滿分", "百分比", "提交時間"];
-    const rows = filteredSubmissions.map(s => [
-      s.studentName,
-      s.studentNumber,
-      s.originalClass,
-      s.totalScore,
-      s.maxScore,
-      `${Math.round((s.totalScore / s.maxScore) * 100)}%`,
-      new Date(s.submittedAt).toLocaleString("zh-TW"),
-    ]);
-
-    const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${session?.title || "answer-sheet"}-submissions.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    window.open(`/api/answer-sheets/${id}/export-excel`, "_blank");
   };
 
   if (sessionLoading || submissionsLoading) {
@@ -222,7 +204,7 @@ export default function AdminSheetSubmissions() {
             <div>
               <h1 className="text-2xl font-bold">{selectedSubmission.studentName} 的答題詳情</h1>
               <p className="text-muted-foreground">
-                {selectedSubmission.originalClass} - 學號 {selectedSubmission.studentNumber} | 
+                {selectedSubmission.originalClass} ({selectedSubmission.mixedClass || "-"}) - 班號 {selectedSubmission.studentNumber} | 
                 得分: {selectedSubmission.totalScore}/{selectedSubmission.maxScore} ({Math.round((selectedSubmission.totalScore / selectedSubmission.maxScore) * 100)}%)
               </p>
             </div>
@@ -307,7 +289,7 @@ export default function AdminSheetSubmissions() {
           </div>
           <Button variant="outline" onClick={handleExport} data-testid="button-export">
             <Download className="h-4 w-4 mr-2" />
-            匯出 CSV
+            匯出 Excel
           </Button>
         </div>
 
@@ -481,10 +463,10 @@ export default function AdminSheetSubmissions() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>姓名</TableHead>
-                      <TableHead>學號</TableHead>
-                      <TableHead>班級</TableHead>
+                      <TableHead>班號</TableHead>
+                      <TableHead>原班</TableHead>
+                      <TableHead>走班</TableHead>
                       <TableHead>得分</TableHead>
-                      <TableHead>百分比</TableHead>
                       <TableHead>提交時間</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -499,13 +481,13 @@ export default function AdminSheetSubmissions() {
                           <TableCell>
                             <Badge variant="outline">{sub.originalClass}</Badge>
                           </TableCell>
-                          <TableCell>{sub.totalScore}/{sub.maxScore}</TableCell>
+                          <TableCell className="text-muted-foreground">{sub.mixedClass || "-"}</TableCell>
                           <TableCell>
                             <Badge variant={percentage >= 60 ? "default" : "destructive"}>
-                              {percentage}%
+                              {sub.totalScore}/{sub.maxScore} ({percentage}%)
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-muted-foreground">
+                          <TableCell className="text-muted-foreground text-sm">
                             {new Date(sub.submittedAt).toLocaleString("zh-TW")}
                           </TableCell>
                           <TableCell>
