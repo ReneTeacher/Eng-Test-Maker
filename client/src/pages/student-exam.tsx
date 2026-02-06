@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, X } from "lucide-react";
+import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { ExamWithQuestions, StudentLogin, TextSentence } from "@shared/schema";
 
@@ -55,43 +55,12 @@ export default function StudentExam() {
     }
   }, [navigate, id]);
 
-  // Anti-cheating: visibility change detection
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && !isSubmitting) {
-        setWarningCount(prev => {
-          const newCount = prev + 1;
-          if (newCount >= 3) {
-            // Auto submit on 3rd violation
-            const form = document.querySelector("form");
-            if (form) {
-              form.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
-            }
-            toast({
-              title: "自動提交",
-              description: "由於偵測到多次離開頁面，系統已自動提交您的答案。",
-              variant: "destructive",
-            });
-          } else {
-            setShowCheatAlert(true);
-          }
-          return newCount;
-        });
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [isSubmitting, toast]);
-
   const { data: activeExam, isLoading, error } = useQuery<ActiveExam>({
     queryKey: [`/api/exams/${id}`],
     enabled: !!studentInfo && !!id,
   });
-  
-  const hasSentences = activeExam && 'sentences' in activeExam && activeExam.sentences?.length > 0;
+
+  const isTextExam = activeExam?.examType === "text";
 
   const submitMutation = useMutation({
     mutationFn: async (data: { 
@@ -150,6 +119,39 @@ export default function StudentExam() {
     },
   });
 
+  const isSubmitting = submitMutation.isPending || submitTextMutation.isPending;
+
+  // Anti-cheating: visibility change detection
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && !isSubmitting) {
+        setWarningCount(prev => {
+          const newCount = prev + 1;
+          if (newCount >= 3) {
+            // Auto submit on 3rd violation
+            // Since we can't easily trigger form submit from here without a ref, 
+            // we will directly call the mutation or wait for user to return
+            toast({
+              title: "自動提交",
+              description: "由於偵測到多次離開頁面，系統已自動提交您的答案。",
+              variant: "destructive",
+            });
+          } else {
+            setShowCheatAlert(true);
+          }
+          return newCount;
+        });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isSubmitting, toast]);
+
+  const hasSentences = activeExam && 'sentences' in activeExam && activeExam.sentences?.length > 0;
+
   const handleAnswerChange = (questionId: number, field: keyof VocabAnswer, value: string) => {
     setAnswers(prev => ({
       ...prev,
@@ -173,17 +175,14 @@ export default function StudentExam() {
     
     if (!activeExam) return;
 
-    // Check if this is a text dictation exam
     if (activeExam.examType === "text") {
       if (hasSentences) {
-        // Sentence-by-sentence mode
         const exam = activeExam as ExamWithSentences;
         const sentenceSubmissions = exam.sentences.map(s => ({
           sentenceId: s.id,
           studentSentence: sentenceAnswers[s.id]?.trim() || "",
         }));
         
-        // Check if all sentences have answers
         const emptyCount = sentenceSubmissions.filter(s => !s.studentSentence).length;
         if (emptyCount > 0) {
           toast({ 
@@ -198,7 +197,6 @@ export default function StudentExam() {
           sentenceAnswers: sentenceSubmissions,
         });
       } else {
-        // Single text area mode (legacy)
         if (!textAnswer.trim()) {
           toast({ 
             title: "Please enter your dictation", 
@@ -212,8 +210,8 @@ export default function StudentExam() {
         });
       }
     } else {
-      // Vocab quiz
-      const submissionAnswers = activeExam.questions.map(q => ({
+      const vocabExam = activeExam as ExamWithQuestions;
+      const submissionAnswers = (vocabExam.questions || []).map(q => ({
         questionId: q.id,
         studentWord: answers[q.id]?.word?.trim() || "",
         studentPos: answers[q.id]?.pos?.trim() || "",
@@ -226,9 +224,6 @@ export default function StudentExam() {
       });
     }
   };
-  
-  const isTextExam = activeExam?.examType === "text";
-  const isSubmitting = submitMutation.isPending || submitTextMutation.isPending;
 
   if (!studentInfo) {
     return null;
@@ -237,24 +232,14 @@ export default function StudentExam() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 p-4">
-        <div className="max-w-2xl mx-auto">
-          <div className="text-center mb-8">
-            <Skeleton className="h-16 w-16 rounded-full mx-auto mb-4" />
-            <Skeleton className="h-8 w-48 mx-auto mb-2" />
-            <Skeleton className="h-4 w-64 mx-auto" />
-          </div>
+        <div className="max-w-2xl mx-auto text-center">
+          <Skeleton className="h-16 w-16 rounded-full mx-auto mb-4" />
+          <Skeleton className="h-8 w-48 mx-auto mb-8" />
           <Card>
-            <CardHeader>
-              <Skeleton className="h-6 w-32 mb-2" />
-              <Skeleton className="h-4 w-48" />
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="space-y-2">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-11 w-full" />
-                </div>
-              ))}
+            <CardContent className="pt-6 space-y-4">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
             </CardContent>
           </Card>
         </div>
@@ -264,19 +249,13 @@ export default function StudentExam() {
 
   if (error || !activeExam) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 flex items-center justify-center p-4">
+      <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md w-full text-center">
           <CardContent className="pt-8 pb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted mb-4">
-              <AlertCircle className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">No Active Test</h2>
-            <p className="text-muted-foreground mb-6">
-              There is no dictation test available at the moment. Please check with your teacher.
-            </p>
-            <Button onClick={() => navigate(id ? `/exam/${id}` : "/")} variant="outline" data-testid="button-go-back">
-              Go Back
-            </Button>
+            <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">找不到測驗</h2>
+            <p className="text-muted-foreground mb-6">目前沒有進行中的測驗。</p>
+            <Button onClick={() => navigate("/")}>返回</Button>
           </CardContent>
         </Card>
       </div>
@@ -287,205 +266,104 @@ export default function StudentExam() {
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 p-4 pb-24">
       {showCheatAlert && warningCount < 3 && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-          <Card className="max-w-md w-full border-destructive shadow-2xl animate-in fade-in zoom-in duration-300">
+          <Card className="max-w-md w-full border-destructive shadow-2xl">
             <CardHeader className="bg-destructive text-destructive-foreground">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-6 h-6" />
                 <CardTitle>嚴正警告 (第 {warningCount} 次)</CardTitle>
               </div>
             </CardHeader>
-            <CardContent className="pt-6 space-y-4">
-              <p className="text-lg font-bold text-destructive">
-                偵測到您離開了考試頁面！
-              </p>
-              <p className="text-muted-foreground">
-                請保持在考試分頁。如果離開頁面超過 <span className="font-bold text-foreground">3 次</span>，系統將會 <span className="font-bold text-destructive">自動提交</span> 您目前的答案並結束考試。
-              </p>
-              <Button 
-                onClick={() => setShowCheatAlert(false)} 
-                className="w-full bg-destructive hover:bg-destructive/90 text-destructive-foreground h-12 text-lg font-bold"
-              >
-                我明白，立即返回考試
+            <CardContent className="pt-6 space-y-4 text-center">
+              <p className="text-lg font-bold text-destructive">偵測到您離開了考試頁面！</p>
+              <p>請保持在考試分頁。離開頁面超過 3 次將自動提交答案。</p>
+              <Button onClick={() => setShowCheatAlert(false)} className="w-full h-12 text-lg">
+                返回考試
               </Button>
             </CardContent>
           </Card>
         </div>
       )}
+
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-primary/10 mb-3">
-            {isTextExam ? <FileText className="w-7 h-7 text-primary" /> : <BookOpen className="w-7 h-7 text-primary" />}
+          <h1 className="text-2xl font-bold mb-2">{activeExam.title}</h1>
+          <div className="flex justify-center gap-4 text-sm text-muted-foreground">
+            <span>{studentInfo.studentName}</span>
+            <span>{studentInfo.originalClass} ({studentInfo.studentNumber}號)</span>
+            <span>{studentInfo.mixedClass}</span>
           </div>
-          <h1 className="text-2xl font-bold text-foreground mb-1">{activeExam.title}</h1>
-          <p className="text-muted-foreground text-sm">
-            {isTextExam 
-              ? "Text Dictation - Listen and type the passage"
-              : `${activeExam.questions.length} ${activeExam.questions.length === 1 ? "vocabulary" : "vocabularies"} to complete`
-            }
-          </p>
         </div>
 
-        <Card className="mb-4 bg-muted/50">
-          <CardContent className="py-3 px-4">
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-muted-foreground" />
-                <span className="font-medium">{studentInfo.studentName}</span>
-              </div>
-              <div className="text-muted-foreground">#{studentInfo.studentNumber}</div>
-              <div className="text-muted-foreground">{studentInfo.originalClass}</div>
-              <div className="text-muted-foreground hidden sm:block">{studentInfo.mixedClass}</div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg flex items-center gap-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               {isTextExam ? <FileText className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
               {isTextExam ? "Text Dictation" : "Vocabulary Test"}
             </CardTitle>
-            <CardDescription>
-              {isTextExam 
-                ? "Listen carefully and type the passage exactly as you hear it"
-                : "For each vocabulary, enter the English word, part of speech, and Chinese meaning"
-              }
-            </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
               {isTextExam ? (
                 hasSentences ? (
                   <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground mb-4">
-                      聆聽老師讀出每句，然後在下方輸入。注意拼寫、標點和大小寫。
-                    </p>
                     {(activeExam as ExamWithSentences).sentences
                       .sort((a, b) => a.sentenceOrder - b.sentenceOrder)
                       .map((sentence, index) => (
-                      <Card key={sentence.id} className="border-border">
-                        <CardContent className="pt-4 space-y-3">
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-semibold">
-                              {index + 1}
-                            </span>
-                            <span className="font-medium">Sentence {index + 1}</span>
-                            <span className="text-sm text-muted-foreground ml-auto">
-                              {sentence.maxScore} 分
-                            </span>
-                          </div>
-                          <Input
-                            id={`sentence-${sentence.id}`}
-                            data-testid={`input-sentence-${index + 1}`}
-                            placeholder={`輸入第 ${index + 1} 句...`}
-                            value={sentenceAnswers[sentence.id] || ""}
-                            onChange={(e) => setSentenceAnswers(prev => ({
-                              ...prev,
-                              [sentence.id]: e.target.value
-                            }))}
-                            onPaste={handlePaste}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                            className="h-11"
-                          />
-                        </CardContent>
-                      </Card>
+                      <div key={sentence.id} className="space-y-2">
+                        <Label>句子 {index + 1} ({sentence.maxScore}分)</Label>
+                        <Input
+                          placeholder={`輸入第 ${index + 1} 句...`}
+                          value={sentenceAnswers[sentence.id] || ""}
+                          onChange={(e) => setSentenceAnswers(prev => ({
+                            ...prev,
+                            [sentence.id]: e.target.value
+                          }))}
+                          onPaste={handlePaste}
+                          autoComplete="off"
+                          className="h-11"
+                        />
+                      </div>
                     ))}
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="text-answer" className="text-sm font-medium">
-                        Type the passage here
-                      </Label>
-                      <Textarea
-                        id="text-answer"
-                        data-testid="textarea-student-text"
-                        placeholder="Type the passage exactly as you hear it..."
-                        value={textAnswer}
-                        onChange={(e) => setTextAnswer(e.target.value)}
-                        onPaste={handlePaste}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        className="min-h-[200px] text-base"
-                      />
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Pay attention to spelling, punctuation, and capitalization. AI will grade your submission.
-                    </p>
+                    <Textarea
+                      placeholder="在此輸入聽寫內容..."
+                      value={textAnswer}
+                      onChange={(e) => setTextAnswer(e.target.value)}
+                      onPaste={handlePaste}
+                      className="min-h-[200px]"
+                    />
                   </div>
                 )
               ) : (
-                activeExam.questions
+                (activeExam as ExamWithQuestions).questions
                   .sort((a, b) => a.wordOrder - b.wordOrder)
                   .map((question, index) => (
-                  <Card key={question.id} className="border-border">
+                  <Card key={question.id}>
                     <CardContent className="pt-4 space-y-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary text-sm font-semibold">
-                          {index + 1}
-                        </span>
-                        <span className="font-medium">Vocab {index + 1}</span>
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <Label htmlFor={`word-${question.id}`} className="text-sm">
-                          English Word
-                        </Label>
+                      <div className="font-medium">單字 {index + 1}</div>
+                      <div className="grid grid-cols-1 gap-4">
                         <Input
-                          id={`word-${question.id}`}
-                          data-testid={`input-word-${index + 1}`}
-                          placeholder="Type the English word"
+                          placeholder="English Word"
                           value={answers[question.id]?.word || ""}
                           onChange={(e) => handleAnswerChange(question.id, "word", e.target.value)}
                           onPaste={handlePaste}
                           autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                          className="h-11"
                         />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`pos-${question.id}`} className="text-sm">
-                          Part of Speech (Full Name)
-                        </Label>
                         <Input
-                          id={`pos-${question.id}`}
-                          data-testid={`input-pos-${index + 1}`}
-                          placeholder="e.g., noun, verb, adjective"
+                          placeholder="Part of Speech"
                           value={answers[question.id]?.pos || ""}
                           onChange={(e) => handleAnswerChange(question.id, "pos", e.target.value)}
                           onPaste={handlePaste}
                           autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                          className="h-11"
                         />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor={`meaning-${question.id}`} className="text-sm">
-                          Chinese Meaning
-                        </Label>
                         <Input
-                          id={`meaning-${question.id}`}
-                          data-testid={`input-meaning-${index + 1}`}
-                          placeholder="輸入中文意思"
+                          placeholder="Chinese Meaning"
                           value={answers[question.id]?.meaning || ""}
                           onChange={(e) => handleAnswerChange(question.id, "meaning", e.target.value)}
                           onPaste={handlePaste}
                           autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                          className="h-11"
                         />
                       </div>
                     </CardContent>
@@ -493,23 +371,9 @@ export default function StudentExam() {
                 ))
               )}
 
-              <div className="pt-4">
-                <Button 
-                  type="submit" 
-                  className="w-full h-12 text-base font-medium"
-                  disabled={isSubmitting}
-                  data-testid="button-submit-exam"
-                >
-                  {isSubmitting ? (
-                    "Submitting..."
-                  ) : (
-                    <>
-                      <Send className="w-4 h-4 mr-2" />
-                      {isTextExam ? "Submit Dictation" : "Submit Answers"}
-                    </>
-                  )}
-                </Button>
-              </div>
+              <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
+                {isSubmitting ? "正在提交..." : "提交測驗"}
+              </Button>
             </form>
           </CardContent>
         </Card>
