@@ -1,13 +1,15 @@
 import { useState, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Search, Users, Trophy, Target, TrendingUp, Download, Eye } from "lucide-react";
+import { ArrowLeft, Search, Users, Trophy, Target, TrendingUp, Download, Eye, Trash2 } from "lucide-react";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { AnswerSheetSession, AnswerSheetSubmission, PartItem, QuestionItem } from "@shared/schema";
 
 interface SubmissionWithDetails extends AnswerSheetSubmission {
@@ -72,6 +74,26 @@ export default function AdminSheetSubmissions() {
   };
 
   const { parts, flatQuestions } = parseItems();
+  const { toast } = useToast();
+
+  const deleteSubmissionMutation = useMutation({
+    mutationFn: async (submissionId: number) => {
+      await apiRequest("DELETE", `/api/answer-sheets/submissions/${submissionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/answer-sheets", id, "submissions"] });
+      toast({ title: "提交記錄已刪除" });
+    },
+    onError: () => {
+      toast({ title: "刪除失敗", variant: "destructive" });
+    },
+  });
+
+  const handleDeleteSubmission = (submissionId: number) => {
+    if (confirm("確定要刪除這筆提交記錄嗎？此操作無法還原。")) {
+      deleteSubmissionMutation.mutate(submissionId);
+    }
+  };
 
   // Filter submissions
   const filteredSubmissions = useMemo(() => {
@@ -491,14 +513,25 @@ export default function AdminSheetSubmissions() {
                             {new Date(sub.submittedAt).toLocaleString("zh-TW")}
                           </TableCell>
                           <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setSelectedSubmission(sub)}
-                              data-testid={`button-view-${sub.id}`}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setSelectedSubmission(sub)}
+                                data-testid={`button-view-${sub.id}`}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteSubmission(sub.id)}
+                                className="text-destructive hover:text-destructive"
+                                data-testid={`button-delete-${sub.id}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );

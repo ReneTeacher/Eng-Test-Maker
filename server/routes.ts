@@ -1330,6 +1330,51 @@ Respond in this exact JSON format only, no other text:
     }
   });
 
+  // Delete vocab submission
+  app.delete("/api/submissions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const success = await storage.deleteSubmission(id);
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ message: "Submission not found" });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete submission" });
+    }
+  });
+
+  // Delete text submission
+  app.delete("/api/text-submissions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const success = await storage.deleteTextSubmission(id);
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ message: "Submission not found" });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete submission" });
+    }
+  });
+
+  // Delete answer sheet submission
+  app.delete("/api/answer-sheets/submissions/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const success = await storage.deleteAnswerSheetSubmission(id);
+      if (success) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ message: "Submission not found" });
+      }
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete submission" });
+    }
+  });
+
   // Export answer sheet submissions to Excel
   app.get("/api/answer-sheets/:id/export-excel", async (req, res) => {
     try {

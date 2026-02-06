@@ -35,6 +35,7 @@ export interface IStorage {
   getAnswerDetailsBySubmissionId(submissionId: number): Promise<AnswerDetail[]>;
   getAnswerDetailsByExamId(examId: number): Promise<(AnswerDetail & { submissionId: number })[]>;
   updateAnswerDetail(id: number, data: Partial<AnswerDetail>): Promise<void>;
+  deleteSubmission(id: number): Promise<boolean>;
 
   // Text Submissions
   createTextSubmission(data: {
@@ -49,6 +50,7 @@ export interface IStorage {
     feedback?: string;
   }): Promise<TextSubmission>;
   getTextSubmissionsByExamId(examId: number): Promise<TextSubmission[]>;
+  deleteTextSubmission(id: number): Promise<boolean>;
 
   // Text Sentences
   createTextSentences(sentences: InsertTextSentence[]): Promise<TextSentence[]>;
@@ -59,6 +61,18 @@ export interface IStorage {
   // Text Answer Details
   createTextAnswerDetails(details: InsertTextAnswerDetail[]): Promise<TextAnswerDetail[]>;
   getTextAnswerDetailsBySubmissionId(submissionId: number): Promise<TextAnswerDetail[]>;
+
+  // Answer Sheet Sessions
+  createAnswerSheetSession(session: InsertAnswerSheetSession): Promise<AnswerSheetSession>;
+  getAnswerSheetSessions(): Promise<AnswerSheetSession[]>;
+  getAnswerSheetSessionById(id: number): Promise<AnswerSheetSession | undefined>;
+  updateAnswerSheetSession(id: number, data: Partial<InsertAnswerSheetSession>): Promise<AnswerSheetSession | undefined>;
+  deleteAnswerSheetSession(id: number): Promise<boolean>;
+
+  // Answer Sheet Submissions
+  createAnswerSheetSubmission(submission: InsertAnswerSheetSubmission): Promise<AnswerSheetSubmission>;
+  getAnswerSheetSubmissionsBySessionId(sessionId: number): Promise<AnswerSheetSubmission[]>;
+  deleteAnswerSheetSubmission(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -175,6 +189,14 @@ export class DatabaseStorage implements IStorage {
     await db.update(answerDetails).set(data).where(eq(answerDetails.id, id));
   }
 
+  async deleteSubmission(id: number): Promise<boolean> {
+    // Delete answer details first
+    await db.delete(answerDetails).where(eq(answerDetails.submissionId, id));
+    // Delete the submission
+    const result = await db.delete(studentSubmissions).where(eq(studentSubmissions.id, id)).returning();
+    return result.length > 0;
+  }
+
   // Text Submissions
   async createTextSubmission(data: {
     examId: number;
@@ -200,6 +222,14 @@ export class DatabaseStorage implements IStorage {
       .from(textSubmissions)
       .where(eq(textSubmissions.examId, examId))
       .orderBy(desc(textSubmissions.submittedAt));
+  }
+
+  async deleteTextSubmission(id: number): Promise<boolean> {
+    // Delete text answer details first
+    await db.delete(textAnswerDetails).where(eq(textAnswerDetails.submissionId, id));
+    // Delete the text submission
+    const result = await db.delete(textSubmissions).where(eq(textSubmissions.id, id)).returning();
+    return result.length > 0;
   }
 
   // Text Sentences
@@ -305,6 +335,11 @@ export class DatabaseStorage implements IStorage {
 
   async getAnswerSheetSubmissionsBySessionId(sessionId: number): Promise<AnswerSheetSubmission[]> {
     return db.select().from(answerSheetSubmissions).where(eq(answerSheetSubmissions.sessionId, sessionId)).orderBy(desc(answerSheetSubmissions.submittedAt));
+  }
+
+  async deleteAnswerSheetSubmission(id: number): Promise<boolean> {
+    const result = await db.delete(answerSheetSubmissions).where(eq(answerSheetSubmissions.id, id)).returning();
+    return result.length > 0;
   }
 }
 

@@ -146,6 +146,30 @@ export default function AdminSubmissions() {
     },
   });
 
+  const deleteSubmissionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const endpoint = exam?.examType === "text" ? `/api/text-submissions/${id}` : `/api/submissions/${id}`;
+      const response = await apiRequest("DELETE", endpoint);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/submissions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/text-submissions"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/exams/${examId}/analytics`] });
+      toast({ title: "提交記錄已刪除" });
+      setIsDetailOpen(false);
+    },
+    onError: () => {
+      toast({ title: "刪除失敗", variant: "destructive" });
+    },
+  });
+
+  const handleDeleteSubmission = (id: number) => {
+    if (confirm("確定要刪除這筆提交記錄嗎？此操作無法還原。")) {
+      deleteSubmissionMutation.mutate(id);
+    }
+  };
+
   const fetchSubmissionDetails = async (submissionId: number) => {
     const endpoint = exam?.examType === "text" 
       ? `/api/text-submissions/${submissionId}` 
@@ -499,6 +523,15 @@ export default function AdminSubmissions() {
                             data-testid={`button-edit-${sub.id}`}
                           >
                             <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDeleteSubmission(sub.id)}
+                            className="text-destructive hover:text-destructive"
+                            data-testid={`button-delete-${sub.id}`}
+                          >
+                            <X className="w-4 h-4" />
                           </Button>
                         </div>
                       </TableCell>
