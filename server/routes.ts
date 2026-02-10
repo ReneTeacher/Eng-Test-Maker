@@ -8,25 +8,75 @@ import OpenAI from "openai";
 // Poe API client for AI scoring
 const poeClient = new OpenAI({
   apiKey: process.env.POE_API_KEY,
-  baseURL: "https://api.poe.com/bot/v1",
+  baseURL: "https://api.poe.com/v1",
 });
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
+// Common Simplified-to-Traditional Chinese character mapping
+const simplifiedToTraditional: Record<string, string> = {
+  '复': '復', '发': '發', '历': '歷', '雇': '僱', '肤': '膚', '评': '評',
+  '独': '獨', '说': '說', '镜': '鏡', '职': '職', '应': '應', '认': '認',
+  '资': '資', '产': '產', '济': '濟', '经': '經', '绍': '紹', '绿': '綠',
+  '见': '見', '观': '觀', '计': '計', '记': '記', '设': '設', '话': '話',
+  '语': '語', '请': '請', '读': '讀', '课': '課', '调': '調', '谢': '謝',
+  '买': '買', '卖': '賣', '开': '開', '关': '關', '门': '門', '间': '間',
+  '问': '問', '闻': '聞', '学': '學', '实': '實', '宝': '寶', '对': '對',
+  '导': '導', '将': '將', '尽': '盡', '层': '層', '岁': '歲', '师': '師',
+  '帮': '幫', '广': '廣', '庆': '慶', '张': '張', '强': '強',
+  '归': '歸', '当': '當', '录': '錄', '总': '總', '扩': '擴', '护': '護',
+  '报': '報', '担': '擔', '择': '擇', '据': '據', '损': '損', '换': '換',
+  '接': '接', '挥': '揮', '搜': '搜', '撑': '撐', '收': '收', '数': '數',
+  '整': '整', '斗': '鬥', '断': '斷', '无': '無', '旧': '舊', '时': '時',
+  '显': '顯', '书': '書', '机': '機', '权': '權', '来': '來', '标': '標',
+  '样': '樣', '检': '檢', '欢': '歡', '气': '氣', '汇': '匯', '没': '沒',
+  '注': '註', '洁': '潔', '活': '活', '满': '滿', '渐': '漸', '源': '源',
+  '准': '準', '热': '熱', '爱': '愛', '牺': '犧', '环': '環', '现': '現',
+  '理': '理', '画': '畫', '异': '異', '疗': '療', '皮': '皮', '监': '監',
+  '盖': '蓋', '码': '碼', '确': '確', '种': '種', '积': '積', '称': '稱',
+  '笔': '筆', '签': '簽', '筑': '築', '节': '節', '纪': '紀', '纯': '純',
+  '线': '線', '组': '組', '细': '細', '终': '終', '结': '結', '给': '給',
+  '继': '繼', '绩': '績', '续': '續', '维': '維', '综': '綜', '缓': '緩',
+  '练': '練', '联': '聯', '脑': '腦', '脸': '臉', '艺': '藝', '获': '獲',
+  '营': '營', '虑': '慮', '补': '補', '装': '裝', '规': '規', '览': '覽',
+  '触': '觸', '证': '證', '试': '試', '识': '識', '详': '詳', '谁': '誰',
+  '质': '質', '购': '購', '贸': '貿', '费': '費', '赛': '賽', '赢': '贏',
+  '车': '車', '转': '轉', '载': '載', '输': '輸', '达': '達', '边': '邊',
+  '还': '還', '进': '進', '远': '遠', '选': '選', '递': '遞', '释': '釋',
+  '针': '針', '钱': '錢', '铁': '鐵', '银': '銀', '错': '錯', '随': '隨',
+  '险': '險', '难': '難', '须': '須', '预': '預', '领': '領', '题': '題',
+  '马': '馬', '验': '驗', '鱼': '魚', '龙': '龍', '构': '構', '体': '體',
+  '兰': '蘭', '举': '舉', '从': '從', '传': '傳', '价': '價', '优': '優',
+  '仅': '僅', '众': '眾', '伤': '傷', '华': '華', '单': '單', '危': '危',
+  '压': '壓', '县': '縣', '参': '參', '双': '雙', '响': '響',
+  '医': '醫', '协': '協', '厂': '廠', '原': '原', '听': '聽', '嘱': '囑',
+  '园': '園', '国': '國', '图': '圖', '团': '團', '圣': '聖', '坏': '壞',
+  '声': '聲', '处': '處', '备': '備', '够': '夠', '头': '頭', '夺': '奪',
+  '奋': '奮', '妇': '婦', '嫔': '嬪', '属': '屬', '带': '帶',
+};
+
+function convertSimplifiedToTraditional(text: string): string {
+  let result = '';
+  for (const char of text) {
+    result += simplifiedToTraditional[char] || char;
+  }
+  return result;
+}
+
 // Helper function to normalize Chinese text for comparison
 function normalizeChinese(text: string): string {
-  return text
+  let normalized = text
     .trim()
-    .replace(/\s+/g, '') // Remove all whitespace
-    .replace(/，/g, ',') // Full-width comma to half-width
-    .replace(/。/g, '.') // Full-width period to half-width
-    .replace(/！/g, '!') // Full-width exclamation
-    .replace(/？/g, '?') // Full-width question mark
-    .replace(/：/g, ':') // Full-width colon
-    .replace(/；/g, ';') // Full-width semicolon
-    .replace(/（/g, '(') // Full-width parentheses
+    .replace(/\s+/g, '')
+    .replace(/，/g, ',')
+    .replace(/。/g, '.')
+    .replace(/！/g, '!')
+    .replace(/？/g, '?')
+    .replace(/：/g, ':')
+    .replace(/；/g, ';')
+    .replace(/（/g, '(')
     .replace(/）/g, ')')
-    .replace(/「/g, '"') // Chinese quotation marks
+    .replace(/「/g, '"')
     .replace(/」/g, '"')
     .replace(/『/g, "'")
     .replace(/』/g, "'")
@@ -34,6 +84,40 @@ function normalizeChinese(text: string): string {
     .replace(/》/g, '>')
     .replace(/【/g, '[')
     .replace(/】/g, ']');
+  normalized = convertSimplifiedToTraditional(normalized);
+  return normalized;
+}
+
+// Check if student meaning matches correct meaning with multiple strategies
+function checkMeaningMatch(studentMeaning: string, correctMeaningRaw: string): boolean {
+  if (!studentMeaning || studentMeaning.length === 0) return false;
+
+  const normalizedStudent = normalizeChinese(studentMeaning);
+  const normalizedFullCorrect = normalizeChinese(correctMeaningRaw);
+
+  // Strategy 1: Full exact match (before splitting)
+  if (normalizedStudent === normalizedFullCorrect) return true;
+
+  // Strategy 2: Split correct answer and check if student matches any part
+  const correctParts = correctMeaningRaw.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
+  if (correctParts.includes(normalizedStudent)) return true;
+
+  // Strategy 3: Split student answer too and check if any student part matches any correct part
+  const studentParts = studentMeaning.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
+  for (const sp of studentParts) {
+    if (correctParts.includes(sp)) return true;
+  }
+
+  // Strategy 4: Remove trailing 的 and check again
+  const studentNoSuffix = normalizedStudent.replace(/的$/, '');
+  for (const cp of correctParts) {
+    const correctNoSuffix = cp.replace(/的$/, '');
+    if (studentNoSuffix === correctNoSuffix) return true;
+    if (studentNoSuffix === cp) return true;
+    if (normalizedStudent === correctNoSuffix) return true;
+  }
+
+  return false;
 }
 
 export async function registerRoutes(
@@ -363,7 +447,7 @@ Respond in this exact JSON format only:
 {"isCorrect": <boolean>, "feedback": "<brief feedback in Chinese>"}`;
 
                   const response = await poeClient.chat.completions.create({
-                    model: "Gemini-3-Flash",
+                    model: "gemini-2.5-flash",
                     messages: [{ role: "user", content: prompt }],
                     max_tokens: 100,
                   });
@@ -425,7 +509,7 @@ Respond in this exact JSON format only:
       }
 
       const allExams = await storage.getExams();
-      const vocabExams = allExams.filter(e => e.examType === "vocab");
+      const vocabExams = allExams.filter(e => e.examType === "vocab" || e.examType === "vocabulary");
       let updatedCount = 0;
 
       for (const exam of vocabExams) {
@@ -441,42 +525,44 @@ Respond in this exact JSON format only:
             if (question) {
               const studentWord = answer.studentWord.trim().toLowerCase();
               const studentPos = answer.studentPos.trim().toLowerCase();
-              const studentMeaning = normalizeChinese(answer.studentMeaning);
 
               const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
               const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-              const correctMeanings = question.correctMeaning.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
 
               const wordCorrect = correctWords.includes(studentWord);
               const posCorrect = correctPosList.includes(studentPos);
-              let meaningCorrect = correctMeanings.includes(studentMeaning);
+              let meaningCorrect = checkMeaningMatch(answer.studentMeaning, question.correctMeaning);
               let earnedScore = 0;
 
-              if (!meaningCorrect && studentMeaning.length > 0) {
+              if (!meaningCorrect && answer.studentMeaning.trim().length > 0) {
                 try {
-                  const prompt = `You are grading a vocabulary test. Compare the student's Chinese meaning with the correct answer for the English word "${question.correctWord}".
-The student's answer should be considered CORRECT if it matches ANY ONE of the acceptable meanings, or is a valid synonym/paraphrase.
+                  const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
 
-CORRECT CHINESE MEANING(S):
-${question.correctMeaning}
+RULES - Mark as CORRECT if the student's answer:
+1. Is a valid Chinese synonym or paraphrase of ANY of the correct meanings
+2. Uses simplified Chinese characters instead of traditional (e.g. 恢复=恢復, 雇主=僱主, 皮肤=皮膚)
+3. Has minor differences like 有自信的/有自信心的/有信心的 (all mean "confident")
+4. Uses 皮膚瑕疵 vs 肌膚瑕疵 (both mean "skin blemish")
+5. Uses 注重 vs 著重 (both mean "focus on")
+6. Captures the core meaning even if wording differs slightly
 
-STUDENT'S CHINESE MEANING:
-${answer.studentMeaning}
+CORRECT MEANING(S): ${question.correctMeaning}
+STUDENT'S ANSWER: ${answer.studentMeaning}
 
-Respond in this exact JSON format only:
-{"isCorrect": <boolean>, "feedback": "<brief feedback in Chinese>"}`;
+Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
                   const response = await poeClient.chat.completions.create({
-                    model: "Gemini-3-Flash",
+                    model: "gemini-2.5-flash",
                     messages: [{ role: "user", content: prompt }],
-                    max_tokens: 100,
+                    max_tokens: 300,
                   });
 
                   const content = response.choices[0]?.message?.content || "";
-                  const jsonMatch = content.match(/\{[\s\S]*\}/);
+                  console.log(`Re-score AI check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => ${content}`);
+                  const jsonMatch = content.match(/\{[\s\S]*?\}/);
                   if (jsonMatch) {
                     const parsed = JSON.parse(jsonMatch[0]);
-                    if (parsed.isCorrect) {
+                    if (parsed.isCorrect === true) {
                       meaningCorrect = true;
                     }
                   }
@@ -587,46 +673,45 @@ Respond in this exact JSON format only:
         if (question) {
           const studentWord = answer.studentWord.trim().toLowerCase();
           const studentPos = answer.studentPos.trim().toLowerCase();
-          const studentMeaning = normalizeChinese(answer.studentMeaning);
 
-          // Split correct answers by comma (half/full-width), slash, or Chinese pause mark
           const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
           const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-          const correctMeanings = question.correctMeaning.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
 
           const wordCorrect = correctWords.includes(studentWord);
           const posCorrect = correctPosList.includes(studentPos);
           
-          // Exact match check for meaning
-          let meaningCorrect = correctMeanings.includes(studentMeaning);
+          let meaningCorrect = checkMeaningMatch(answer.studentMeaning, question.correctMeaning);
           let earnedScore = 0;
           
-          // If not an exact match and student provided an answer, use AI to check meaning
-          if (!meaningCorrect && studentMeaning.length > 0) {
+          if (!meaningCorrect && answer.studentMeaning.trim().length > 0) {
             try {
-              const prompt = `You are grading a vocabulary test. Compare the student's Chinese meaning with the correct answer for the English word "${question.correctWord}".
-The student's answer should be considered CORRECT if it matches ANY ONE of the acceptable meanings, or is a valid synonym/paraphrase.
+              const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
 
-CORRECT CHINESE MEANING(S):
-${question.correctMeaning}
+RULES - Mark as CORRECT if the student's answer:
+1. Is a valid Chinese synonym or paraphrase of ANY of the correct meanings
+2. Uses simplified Chinese characters instead of traditional (e.g. 恢复=恢復, 雇主=僱主, 皮肤=皮膚)
+3. Has minor differences like 有自信的/有自信心的/有信心的 (all mean "confident")
+4. Uses 皮膚瑕疵 vs 肌膚瑕疵 (both mean "skin blemish")
+5. Uses 注重 vs 著重 (both mean "focus on")
+6. Captures the core meaning even if wording differs slightly
 
-STUDENT'S CHINESE MEANING:
-${answer.studentMeaning}
+CORRECT MEANING(S): ${question.correctMeaning}
+STUDENT'S ANSWER: ${answer.studentMeaning}
 
-Respond in this exact JSON format only:
-{"isCorrect": <boolean>, "feedback": "<brief feedback in Chinese>"}`;
+Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
               const response = await poeClient.chat.completions.create({
-                model: "Gemini-3-Flash",
+                model: "gemini-2.5-flash",
                 messages: [{ role: "user", content: prompt }],
-                max_tokens: 100,
+                max_tokens: 300,
               });
 
               const content = response.choices[0]?.message?.content || "";
-              const jsonMatch = content.match(/\{[\s\S]*\}/);
+              console.log(`AI meaning check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => ${content}`);
+              const jsonMatch = content.match(/\{[\s\S]*?\}/);
               if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
-                if (parsed.isCorrect) {
+                if (parsed.isCorrect === true) {
                   meaningCorrect = true;
                 }
               }
@@ -635,7 +720,6 @@ Respond in this exact JSON format only:
             }
           }
           
-          // Calculate earned score based on weighted scoring
           if (wordCorrect) earnedScore += question.wordScore;
           if (posCorrect) earnedScore += question.posScore;
           if (meaningCorrect) earnedScore += question.meaningScore;
@@ -753,7 +837,7 @@ Respond in this exact JSON format only:
 {"score": <number 0-${sentence.maxScore}>, "feedback": "<brief feedback in Chinese, max 20 chars>"}`;
 
             const response = await poeClient.chat.completions.create({
-              model: "Gemini-3-Flash",
+              model: "gemini-2.5-flash",
               messages: [{ role: "user", content: prompt }],
               max_tokens: 200,
             });
@@ -870,7 +954,7 @@ Respond in this exact JSON format only, no other text:
 {"score": <number 0-100>, "feedback": "<brief feedback in Chinese about main errors>"}`;
 
         const response = await poeClient.chat.completions.create({
-          model: "Gemini-3-Flash",
+          model: "gemini-2.5-flash",
           messages: [{ role: "user", content: prompt }],
           max_tokens: 500,
         });
