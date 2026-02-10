@@ -292,3 +292,31 @@
     inset: -1px;
   }
 }
+
+@keyframes badge-scale-in {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes badge-glow {
+  0%, 100% {
+    box-shadow: 0 0 6px 0 rgba(250, 204, 21, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 16px 4px rgba(250, 204, 21, 0.5);
+  }
+}
+
+.badge-animate {
+  animation: badge-scale-in 0.5s ease-out forwards, badge-glow 2s ease-in-out 0.5s 2;
+}

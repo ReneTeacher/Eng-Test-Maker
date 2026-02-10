@@ -2,7 +2,24 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Trophy, Home, XCircle, CircleCheck } from "lucide-react";
+import { CheckCircle, Trophy, Home, XCircle, CircleCheck, Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck } from "lucide-react";
+import { BADGE_DEFINITIONS, type BadgeDefinition } from "@shared/badges";
+
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck,
+};
+
+const colorMap: Record<string, string> = {
+  yellow: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-600 dark:text-yellow-400",
+  purple: "bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400",
+  blue: "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400",
+  indigo: "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400",
+  orange: "bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400",
+  green: "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400",
+  teal: "bg-teal-100 dark:bg-teal-900/40 text-teal-600 dark:text-teal-400",
+  pink: "bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-400",
+  emerald: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+};
 
 interface QuestionResult {
   questionIndex: number;
@@ -30,6 +47,7 @@ interface SubmissionResult {
   isTextDictation?: boolean;
   sentenceResults?: SentenceResult[];
   questionResults?: QuestionResult[];
+  earnedBadges?: string[];
 }
 
 export default function ThankYou() {
@@ -67,6 +85,10 @@ export default function ThankYou() {
   const CorrectIcon = () => <CircleCheck className="w-4 h-4 text-green-500 shrink-0" />;
   const WrongIcon = () => <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
 
+  const earnedBadges: BadgeDefinition[] = (result?.earnedBadges || [])
+    .map(id => BADGE_DEFINITIONS.find(b => b.id === id))
+    .filter((b): b is BadgeDefinition => !!b);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 flex items-start justify-center p-4 pt-8">
       <Card className="max-w-lg w-full text-center overflow-hidden">
@@ -99,6 +121,34 @@ export default function ThankYou() {
                   {getScoreMessage()}
                 </p>
               </div>
+
+              {earnedBadges.length > 0 && (
+                <div className="bg-muted/30 rounded-lg p-4 space-y-3" data-testid="section-earned-badges">
+                  <p className="text-sm font-medium text-foreground flex items-center justify-center gap-2">
+                    <Trophy className="w-4 h-4 text-yellow-500" />
+                    獲得徽章
+                  </p>
+                  <div className="flex flex-wrap justify-center gap-4">
+                    {earnedBadges.map((badge, idx) => {
+                      const IconComp = iconMap[badge.icon];
+                      return (
+                        <div
+                          key={badge.id}
+                          className="badge-animate flex flex-col items-center gap-1.5 w-20"
+                          style={{ animationDelay: `${idx * 0.15}s`, opacity: 0 }}
+                          data-testid={`badge-earned-${badge.id}`}
+                        >
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center ${colorMap[badge.color] || colorMap.yellow}`}>
+                            {IconComp && <IconComp className="w-6 h-6" />}
+                          </div>
+                          <span className="text-xs font-medium text-foreground leading-tight">{badge.name}</span>
+                          <span className="text-[10px] text-muted-foreground leading-tight text-center">{badge.description}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {!isTextDictation && result.questionResults && result.questionResults.length > 0 && (
                 <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">

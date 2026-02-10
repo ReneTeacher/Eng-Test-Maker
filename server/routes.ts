@@ -1,9 +1,12 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { examSubmissionSchema, createExamSchema } from "@shared/schema";
+import { examSubmissionSchema, createExamSchema, studentSubmissions, textSubmissions, exams } from "@shared/schema";
 import ExcelJS from "exceljs";
 import OpenAI from "openai";
+import { computeBadges, BADGE_DEFINITIONS, type SubmissionRecord } from "@shared/badges";
+import { db } from "./db";
+import { and, eq } from "drizzle-orm";
 
 // Poe API client for AI scoring
 const poeClient = new OpenAI({
@@ -125,6 +128,90 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Helper: get all submissions for a student (both vocab and text)
+  async function getStudentSubmissions(studentName: string, studentNumber: number, originalClass: string): Promise<SubmissionRecord[]> {
+    const vocabSubs = await db.select({
+      totalScore: studentSubmissions.totalScore,
+      submittedAt: studentSubmissions.submittedAt,
+      examId: studentSubmissions.examId,
+    }).from(studentSubmissions).where(
+      and(
+        eq(studentSubmissions.studentName, studentName),
+        eq(studentSubmissions.studentNumber, studentNumber),
+        eq(studentSubmissions.originalClass, originalClass),
+      )
+    );
+
+    const textSubs = await db.select({
+      totalScore: textSubmissions.totalScore,
+      submittedAt: textSubmissions.submittedAt,
+      examId: textSubmissions.examId,
+    }).from(textSubmissions).where(
+      and(
+        eq(textSubmissions.studentName, studentName),
+        eq(textSubmissions.studentNumber, studentNumber),
+        eq(textSubmissions.originalClass, originalClass),
+      )
+    );
+
+    const vocabExamIds = [...new Set(vocabSubs.map(s => s.examId))];
+    const textExamIds = [...new Set(textSubs.map(s => s.examId))];
+    const allExamIds = [...new Set([...vocabExamIds, ...textExamIds])];
+
+    const examTypeMap: Record<number, string> = {};
+    for (const eid of allExamIds) {
+      const exam = await storage.getExamById(eid);
+      if (exam) examTypeMap[eid] = exam.examType;
+    }
+
+    const records: SubmissionRecord[] = [
+      ...vocabSubs.map(s => ({
+        totalScore: s.totalScore,
+        examType: examTypeMap[s.examId] || "vocab",
+        submittedAt: s.submittedAt,
+      })),
+      ...textSubs.map(s => ({
+        totalScore: s.totalScore,
+        examType: examTypeMap[s.examId] || "text",
+        submittedAt: s.submittedAt,
+      })),
+    ];
+
+    return records;
+  }
+
+  // Get student badges
+  app.get("/api/student-badges", async (req, res) => {
+    try {
+      const { studentName, studentNumber, originalClass } = req.query;
+      if (!studentName || !studentNumber || !originalClass) {
+        res.status(400).json({ message: "Missing required query parameters" });
+        return;
+      }
+
+      const records = await getStudentSubmissions(
+        studentName as string,
+        parseInt(studentNumber as string),
+        originalClass as string,
+      );
+
+      const badgeIds = computeBadges(records);
+      const badges = badgeIds.map(id => BADGE_DEFINITIONS.find(b => b.id === id)!).filter(Boolean);
+
+      const scores = records.map(r => r.totalScore);
+      const stats = {
+        totalExams: records.length,
+        averageScore: records.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0,
+        highestScore: records.length > 0 ? Math.max(...scores) : 0,
+      };
+
+      res.json({ badges, stats });
+    } catch (error) {
+      console.error("Student badges error:", error);
+      res.status(500).json({ message: "Failed to fetch badges" });
+    }
+  });
+
   // Admin login
   app.post("/api/admin/login", async (req, res) => {
     try {
@@ -771,11 +858,23 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       // Calculate max possible score for display
       const maxScore = questions.reduce((sum, q) => sum + q.wordScore + q.posScore + q.meaningScore, 0);
 
+      // Compute newly earned badges
+      let earnedBadges: string[] = [];
+      try {
+        const prevRecords = await getStudentSubmissions(studentName, studentNumber, originalClass);
+        const prevBadgeIds = computeBadges(prevRecords.filter(r => new Date(r.submittedAt).getTime() < Date.now() - 5000));
+        const allBadgeIds = computeBadges(prevRecords);
+        earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
+      } catch (e) {
+        console.error("Badge computation error:", e);
+      }
+
       res.json({ 
         totalScore, 
         maxScore,
         totalQuestions: questions.length,
         studentName,
+        earnedBadges,
         questionResults: answerDetailsList.map((d, idx) => ({
           questionIndex: idx + 1,
           studentWord: d.studentWord,
@@ -921,9 +1020,21 @@ Respond in this exact JSON format only:
         }));
         await storage.createTextAnswerDetails(answerDetails);
 
+        // Compute newly earned badges
+        let earnedBadges: string[] = [];
+        try {
+          const prevRecords = await getStudentSubmissions(studentName, studentNumber, originalClass);
+          const prevBadgeIds = computeBadges(prevRecords.filter(r => new Date(r.submittedAt).getTime() < Date.now() - 5000));
+          const allBadgeIds = computeBadges(prevRecords);
+          earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
+        } catch (e) {
+          console.error("Badge computation error:", e);
+        }
+
         res.json({
           totalScore,
           maxScore,
+          earnedBadges,
           sentenceResults: sentenceResults.map(r => ({
             sentenceId: r.sentenceId,
             earned: r.earned,
@@ -1006,9 +1117,21 @@ Respond in this exact JSON format only, no other text:
         feedback,
       });
 
+      // Compute newly earned badges
+      let earnedBadges: string[] = [];
+      try {
+        const prevRecords = await getStudentSubmissions(studentName, studentNumber, originalClass);
+        const prevBadgeIds = computeBadges(prevRecords.filter(r => new Date(r.submittedAt).getTime() < Date.now() - 5000));
+        const allBadgeIds = computeBadges(prevRecords);
+        earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
+      } catch (e) {
+        console.error("Badge computation error:", e);
+      }
+
       res.json({
         totalScore,
         maxScore: 100,
+        earnedBadges,
         studentName,
       });
     } catch (error) {

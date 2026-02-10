@@ -7,13 +7,36 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { BookOpen, User, Hash, School, Users, AlertCircle } from "lucide-react";
+import { BookOpen, User, Hash, School, Users, AlertCircle, Star, Crown, Award, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck } from "lucide-react";
 import type { Exam } from "@shared/schema";
+import type { BadgeDefinition } from "@shared/badges";
+
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck,
+};
+
+const colorMap: Record<string, string> = {
+  yellow: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-600 dark:text-yellow-400",
+  purple: "bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400",
+  blue: "bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400",
+  indigo: "bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400",
+  orange: "bg-orange-100 dark:bg-orange-900/40 text-orange-600 dark:text-orange-400",
+  green: "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400",
+  teal: "bg-teal-100 dark:bg-teal-900/40 text-teal-600 dark:text-teal-400",
+  pink: "bg-pink-100 dark:bg-pink-900/40 text-pink-600 dark:text-pink-400",
+  emerald: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400",
+};
 
 const STUDENT_NUMBERS = Array.from({ length: 40 }, (_, i) => i + 1);
 const ORIGINAL_CLASSES = ["J3A", "J3B", "J3C"];
 const MIXED_CLASSES = ["初三英文1班", "初三英文2班", "初三英文3班"];
+
+interface BadgesResponse {
+  badges: BadgeDefinition[];
+  stats: { totalExams: number; averageScore: number; highestScore: number };
+}
 
 export default function StudentLogin() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +51,24 @@ export default function StudentLogin() {
   const { data: exam, isLoading: examLoading, error: examError } = useQuery<Exam>({
     queryKey: [`/api/exams/${id}`],
     enabled: !!id,
+  });
+
+  const canFetchBadges = !!studentName.trim() && !!studentNumber && !!originalClass;
+
+  const { data: badgesData } = useQuery<BadgesResponse>({
+    queryKey: ['/api/student-badges', studentName.trim(), studentNumber, originalClass],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        studentName: studentName.trim(),
+        studentNumber,
+        originalClass,
+      });
+      const res = await fetch(`/api/student-badges?${params}`);
+      if (!res.ok) throw new Error("Failed to fetch badges");
+      return res.json();
+    },
+    enabled: canFetchBadges,
+    staleTime: 30000,
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,7 +93,6 @@ export default function StudentLogin() {
 
     setIsLoading(true);
 
-    // Store student info in sessionStorage
     const studentInfo = {
       studentName: studentName.trim(),
       studentNumber: parseInt(studentNumber),
@@ -118,6 +158,8 @@ export default function StudentLogin() {
     );
   }
 
+  const badges = badgesData?.badges || [];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -130,6 +172,38 @@ export default function StudentLogin() {
             {exam.examType === "text" ? "Text Dictation" : "Vocabulary Dictation"} - 請填寫資料開始測驗
           </p>
         </div>
+
+        {badges.length > 0 && (
+          <Card className="border-border mb-4" data-testid="section-my-badges">
+            <CardContent className="pt-4 pb-4">
+              <p className="text-sm font-medium text-foreground mb-3 flex items-center gap-1.5">
+                <Star className="w-4 h-4 text-yellow-500" />
+                我的徽章
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {badges.map(badge => {
+                  const IconComp = iconMap[badge.icon];
+                  return (
+                    <Tooltip key={badge.id}>
+                      <TooltipTrigger asChild>
+                        <div
+                          className={`w-8 h-8 rounded-full flex items-center justify-center cursor-default ${colorMap[badge.color] || colorMap.yellow}`}
+                          data-testid={`badge-my-${badge.id}`}
+                        >
+                          {IconComp && <IconComp className="w-4 h-4" />}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="font-medium">{badge.name}</p>
+                        <p className="text-xs text-muted-foreground">{badge.description}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-border">
           <CardHeader className="pb-4">
