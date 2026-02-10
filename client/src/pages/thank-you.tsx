@@ -149,12 +149,6 @@ export default function ThankYou() {
                   ))}
                 </div>
               )}
-              {isTextDictation && result.feedback && !result.sentenceResults && (
-                <div className="bg-muted/30 rounded-lg p-4 text-left">
-                  <p className="text-sm text-muted-foreground font-medium mb-1">AI 評語：</p>
-                  <p className="text-sm">{result.feedback}</p>
-                </div>
-              )}
             </>
           ) : (
             <p className="text-muted-foreground">

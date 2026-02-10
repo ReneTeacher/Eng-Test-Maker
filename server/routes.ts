@@ -841,7 +841,7 @@ Grading criteria (proportional to ${sentence.maxScore} points):
 - Word omission/addition (10%): Deduct points for missing or extra words
 
 Respond in this exact JSON format only:
-{"score": <number 0-${sentence.maxScore}>, "feedback": "<brief feedback in Chinese, max 20 chars>"}`;
+{"score": <number 0-${sentence.maxScore}>, "feedback": "<brief feedback in Chinese, max 20 chars, DO NOT reveal the correct sentence or any part of it>"}`;
 
             const response = await poeClient.chat.completions.create({
               model: "gemini-2.5-flash",
@@ -921,8 +921,11 @@ Respond in this exact JSON format only:
         res.json({
           totalScore,
           maxScore,
-          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${r.earned}/${r.max}分 - ${r.feedback}`).join("\n"),
-          sentenceResults,
+          sentenceResults: sentenceResults.map(r => ({
+            sentenceId: r.sentenceId,
+            earned: r.earned,
+            max: r.max,
+          })),
           studentName,
         });
         return;
@@ -958,7 +961,7 @@ Grading criteria:
 4. Word omission/addition (10 points): Deduct 2 points for each missing or extra word
 
 Respond in this exact JSON format only, no other text:
-{"score": <number 0-100>, "feedback": "<brief feedback in Chinese about main errors>"}`;
+{"score": <number 0-100>, "feedback": "<brief feedback in Chinese about main errors, DO NOT reveal the correct text or any part of it>"}`;
 
         const response = await poeClient.chat.completions.create({
           model: "gemini-2.5-flash",
@@ -1002,7 +1005,6 @@ Respond in this exact JSON format only, no other text:
       res.json({
         totalScore,
         maxScore: 100,
-        feedback,
         studentName,
       });
     } catch (error) {
