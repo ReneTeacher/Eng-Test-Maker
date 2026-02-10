@@ -342,10 +342,46 @@ export async function registerRoutes(
 
               const wordCorrect = correctWords.includes(studentWord);
               const posCorrect = correctPosList.includes(studentPos);
-              const meaningCorrect = correctMeanings.includes(studentMeaning);
+              
+              // Original exact match check for meaning
+              let meaningCorrect = correctMeanings.includes(studentMeaning);
+              let earnedScore = 0;
+              
+              // If not an exact match and student provided an answer, use AI to check meaning
+              if (!meaningCorrect && studentMeaning.length > 0) {
+                try {
+                  const prompt = `Compare the student's Chinese meaning with the correct one for the English word "${question.correctWord}".
+Determining if they have the same or very similar meaning.
+
+CORRECT CHINESE MEANING:
+${question.correctMeaning}
+
+STUDENT'S CHINESE MEANING:
+${answer.studentMeaning}
+
+Respond in this exact JSON format only:
+{"isCorrect": <boolean>, "feedback": "<brief feedback in Chinese>"}`;
+
+                  const response = await poeClient.chat.completions.create({
+                    model: "Gemini-3-Flash",
+                    messages: [{ role: "user", content: prompt }],
+                    max_tokens: 100,
+                  });
+
+                  const content = response.choices[0]?.message?.content || "";
+                  const jsonMatch = content.match(/\{[\s\S]*\}/);
+                  if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (parsed.isCorrect) {
+                      meaningCorrect = true;
+                    }
+                  }
+                } catch (aiError) {
+                  console.error("AI vocab meaning scoring error (re-calculate):", aiError);
+                }
+              }
               
               // Calculate earned score based on weighted scoring
-              let earnedScore = 0;
               if (wordCorrect) earnedScore += question.wordScore;
               if (posCorrect) earnedScore += question.posScore;
               if (meaningCorrect) earnedScore += question.meaningScore;
