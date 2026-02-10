@@ -778,6 +778,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         studentName,
         questionResults: answerDetailsList.map((d, idx) => ({
           questionIndex: idx + 1,
+          studentWord: d.studentWord,
+          studentPos: d.studentPos,
+          studentMeaning: d.studentMeaning,
           wordCorrect: d.wordCorrect,
           posCorrect: d.posCorrect,
           meaningCorrect: d.meaningCorrect,
@@ -925,6 +928,7 @@ Respond in this exact JSON format only:
             sentenceId: r.sentenceId,
             earned: r.earned,
             max: r.max,
+            studentSentence: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
           })),
           studentName,
         });

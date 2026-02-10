@@ -6,6 +6,9 @@ import { CheckCircle, Trophy, Home, XCircle, CircleCheck } from "lucide-react";
 
 interface QuestionResult {
   questionIndex: number;
+  studentWord: string;
+  studentPos: string;
+  studentMeaning: string;
   wordCorrect: boolean;
   posCorrect: boolean;
   meaningCorrect: boolean;
@@ -16,7 +19,7 @@ interface SentenceResult {
   sentenceId: number;
   earned: number;
   max: number;
-  feedback: string;
+  studentSentence?: string;
 }
 
 interface SubmissionResult {
@@ -25,7 +28,6 @@ interface SubmissionResult {
   maxScore?: number;
   studentName: string;
   isTextDictation?: boolean;
-  feedback?: string;
   sentenceResults?: SentenceResult[];
   questionResults?: QuestionResult[];
 }
@@ -62,9 +64,12 @@ export default function ThankYou() {
     return "Don't give up!";
   };
 
+  const CorrectIcon = () => <CircleCheck className="w-4 h-4 text-green-500 shrink-0" />;
+  const WrongIcon = () => <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 flex items-center justify-center p-4">
-      <Card className="max-w-md w-full text-center overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/10 flex items-start justify-center p-4 pt-8">
+      <Card className="max-w-lg w-full text-center overflow-hidden">
         <div className="bg-gradient-to-r from-primary/20 to-primary/10 py-8">
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white dark:bg-card shadow-lg mb-4">
             <CheckCircle className="w-10 h-10 text-green-500" />
@@ -96,32 +101,40 @@ export default function ThankYou() {
               </div>
 
               {!isTextDictation && result.questionResults && result.questionResults.length > 0 && (
-                <div className="bg-muted/30 rounded-lg p-4 text-left space-y-2">
-                  <p className="text-sm text-muted-foreground font-medium mb-3">每題結果：</p>
+                <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
+                  <p className="text-sm text-muted-foreground font-medium mb-2">答題詳情：</p>
                   {result.questionResults.map((qr) => {
                     const allCorrect = qr.wordCorrect && qr.posCorrect && qr.meaningCorrect;
                     return (
-                      <div key={qr.questionIndex} className="flex items-center justify-between text-sm border-b border-border/50 pb-2 last:border-0">
-                        <span className="font-medium">單字 {qr.questionIndex}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="flex items-center gap-1" title="English Word">
-                            {qr.wordCorrect 
-                              ? <CircleCheck className="w-4 h-4 text-green-500" /> 
-                              : <XCircle className="w-4 h-4 text-red-500" />}
-                            <span className="text-xs text-muted-foreground">Word</span>
-                          </span>
-                          <span className="flex items-center gap-1" title="Part of Speech">
-                            {qr.posCorrect 
-                              ? <CircleCheck className="w-4 h-4 text-green-500" /> 
-                              : <XCircle className="w-4 h-4 text-red-500" />}
-                            <span className="text-xs text-muted-foreground">POS</span>
-                          </span>
-                          <span className="flex items-center gap-1" title="Chinese Meaning">
-                            {qr.meaningCorrect 
-                              ? <CircleCheck className="w-4 h-4 text-green-500" /> 
-                              : <XCircle className="w-4 h-4 text-red-500" />}
-                            <span className="text-xs text-muted-foreground">意思</span>
-                          </span>
+                      <div key={qr.questionIndex} className={`rounded-md p-3 border ${allCorrect ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-sm">單字 {qr.questionIndex}</span>
+                          {allCorrect 
+                            ? <span className="text-xs text-green-600 dark:text-green-400 font-medium">全對</span>
+                            : <span className="text-xs text-red-600 dark:text-red-400 font-medium">有錯誤</span>}
+                        </div>
+                        <div className="space-y-1.5 text-sm">
+                          <div className="flex items-center gap-2">
+                            {qr.wordCorrect ? <CorrectIcon /> : <WrongIcon />}
+                            <span className="text-muted-foreground w-12 shrink-0">Word:</span>
+                            <span className={qr.wordCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
+                              {qr.studentWord || "(未填)"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {qr.posCorrect ? <CorrectIcon /> : <WrongIcon />}
+                            <span className="text-muted-foreground w-12 shrink-0">POS:</span>
+                            <span className={qr.posCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
+                              {qr.studentPos || "(未填)"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {qr.meaningCorrect ? <CorrectIcon /> : <WrongIcon />}
+                            <span className="text-muted-foreground w-12 shrink-0">意思:</span>
+                            <span className={qr.meaningCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
+                              {qr.studentMeaning || "(未填)"}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
@@ -130,23 +143,37 @@ export default function ThankYou() {
               )}
 
               {isTextDictation && result.sentenceResults && result.sentenceResults.length > 0 && (
-                <div className="bg-muted/30 rounded-lg p-4 text-left space-y-2">
-                  <p className="text-sm text-muted-foreground font-medium mb-3">每句得分：</p>
-                  {result.sentenceResults.map((sr, idx) => (
-                    <div key={sr.sentenceId} className="flex items-center justify-between text-sm border-b border-border/50 pb-2 last:border-0">
-                      <span className="font-medium">第 {idx + 1} 句</span>
-                      <div className="flex items-center gap-2">
-                        {sr.earned === sr.max 
-                          ? <CircleCheck className="w-4 h-4 text-green-500" />
-                          : sr.earned >= sr.max * 0.6 
-                            ? <CircleCheck className="w-4 h-4 text-yellow-500" />
-                            : <XCircle className="w-4 h-4 text-red-500" />}
-                        <span className={sr.earned === sr.max ? "text-green-600 dark:text-green-400" : sr.earned >= sr.max * 0.6 ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}>
-                          {sr.earned} / {sr.max} 分
-                        </span>
+                <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
+                  <p className="text-sm text-muted-foreground font-medium mb-2">答題詳情：</p>
+                  {result.sentenceResults.map((sr, idx) => {
+                    const isFullScore = sr.earned === sr.max;
+                    const isPass = sr.earned >= sr.max * 0.6;
+                    return (
+                      <div key={sr.sentenceId} className={`rounded-md p-3 border ${isFullScore ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : isPass ? "border-yellow-200 dark:border-yellow-900 bg-yellow-50/50 dark:bg-yellow-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-sm">第 {idx + 1} 句</span>
+                          <div className="flex items-center gap-2">
+                            {isFullScore 
+                              ? <CorrectIcon />
+                              : isPass 
+                                ? <CircleCheck className="w-4 h-4 text-yellow-500 shrink-0" />
+                                : <WrongIcon />}
+                            <span className={`text-sm font-medium ${isFullScore ? "text-green-600 dark:text-green-400" : isPass ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}`}>
+                              {sr.earned} / {sr.max} 分
+                            </span>
+                          </div>
+                        </div>
+                        {sr.studentSentence && (
+                          <div className="text-sm mt-1">
+                            <span className="text-muted-foreground">你的答案：</span>
+                            <span className={isFullScore ? "text-foreground" : "text-red-600 dark:text-red-400"}>
+                              {sr.studentSentence}
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
