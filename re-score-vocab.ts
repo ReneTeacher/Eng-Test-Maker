@@ -66,6 +66,7 @@ async function reScoreAll() {
             try {
               const prompt = `Compare the student's Chinese meaning with the correct one for the English word "${question.correctWord}".
 Determining if they have the same or very similar meaning.
+Note: The student might only provide one of multiple correct meanings. As long as the provided meaning is correct and matching one of the correct senses, it should be considered correct.
 
 CORRECT CHINESE MEANING:
 ${question.correctMeaning}
