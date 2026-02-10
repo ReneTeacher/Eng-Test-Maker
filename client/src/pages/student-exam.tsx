@@ -8,8 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText } from "lucide-react";
+import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, ShieldAlert } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import type { ExamWithQuestions, StudentLogin, TextSentence } from "@shared/schema";
 
 interface VocabAnswer {
@@ -41,6 +51,7 @@ export default function StudentExam() {
   const [studentInfo, setStudentInfo] = useState<StudentLogin | null>(null);
   const [warningCount, setWarningCount] = useState(0);
   const [showCheatAlert, setShowCheatAlert] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
@@ -191,11 +202,6 @@ export default function StudentExam() {
           });
           return;
         }
-        
-        submitTextMutation.mutate({
-          examId: activeExam.id,
-          sentenceAnswers: sentenceSubmissions,
-        });
       } else {
         if (!textAnswer.trim()) {
           toast({ 
@@ -204,6 +210,28 @@ export default function StudentExam() {
           });
           return;
         }
+      }
+    }
+
+    setShowConfirmDialog(true);
+  };
+
+  const handleConfirmedSubmit = () => {
+    if (!activeExam) return;
+    setShowConfirmDialog(false);
+
+    if (activeExam.examType === "text") {
+      if (hasSentences) {
+        const exam = activeExam as ExamWithSentences;
+        const sentenceSubmissions = exam.sentences.map(s => ({
+          sentenceId: s.id,
+          studentSentence: sentenceAnswers[s.id]?.trim() || "",
+        }));
+        submitTextMutation.mutate({
+          examId: activeExam.id,
+          sentenceAnswers: sentenceSubmissions,
+        });
+      } else {
         submitTextMutation.mutate({
           examId: activeExam.id,
           studentText: textAnswer.trim(),
@@ -371,13 +399,33 @@ export default function StudentExam() {
                 ))
               )}
 
-              <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting}>
+              <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting} data-testid="button-submit-exam">
                 {isSubmitting ? "正在提交..." : "提交測驗"}
               </Button>
             </form>
           </CardContent>
         </Card>
       </div>
+
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-yellow-500" />
+              確認交卷
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
+              你確定要提交嗎？提交後將無法修改答案。請確認所有題目已作答完畢。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-submit">返回檢查</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmedSubmit} data-testid="button-confirm-submit">
+              確認提交
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

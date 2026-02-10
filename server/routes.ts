@@ -775,7 +775,14 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         totalScore, 
         maxScore,
         totalQuestions: questions.length,
-        studentName 
+        studentName,
+        questionResults: answerDetailsList.map((d, idx) => ({
+          questionIndex: idx + 1,
+          wordCorrect: d.wordCorrect,
+          posCorrect: d.posCorrect,
+          meaningCorrect: d.meaningCorrect,
+          earnedScore: d.earnedScore,
+        })),
       });
     } catch (error) {
       console.error("Submission error:", error);
