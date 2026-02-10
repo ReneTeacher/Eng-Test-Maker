@@ -336,24 +336,24 @@ export async function registerRoutes(
               const studentPos = answer.studentPos.trim().toLowerCase();
               const studentMeaning = normalizeChinese(answer.studentMeaning);
 
-              const correctWords = question.correctWord.split(/[,\/]/).map(w => w.trim().toLowerCase());
-              const correctPosList = question.correctPos.split(/[,\/]/).map(p => p.trim().toLowerCase());
-              const correctMeanings = question.correctMeaning.split(/[,\/]/).map(m => normalizeChinese(m));
+              const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+              const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+              const correctMeanings = question.correctMeaning.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
 
               const wordCorrect = correctWords.includes(studentWord);
               const posCorrect = correctPosList.includes(studentPos);
               
-              // Original exact match check for meaning
+              // Exact match check for meaning
               let meaningCorrect = correctMeanings.includes(studentMeaning);
               let earnedScore = 0;
               
               // If not an exact match and student provided an answer, use AI to check meaning
               if (!meaningCorrect && studentMeaning.length > 0) {
                 try {
-                  const prompt = `Compare the student's Chinese meaning with the correct one for the English word "${question.correctWord}".
-Determining if they have the same or very similar meaning.
+                  const prompt = `You are grading a vocabulary test. Compare the student's Chinese meaning with the correct answer for the English word "${question.correctWord}".
+The student's answer should be considered CORRECT if it matches ANY ONE of the acceptable meanings, or is a valid synonym/paraphrase.
 
-CORRECT CHINESE MEANING:
+CORRECT CHINESE MEANING(S):
 ${question.correctMeaning}
 
 STUDENT'S CHINESE MEANING:
@@ -412,6 +412,99 @@ Respond in this exact JSON format only:
     } catch (error) {
       console.error("Update exam error:", error);
       res.status(500).json({ message: "Failed to update exam" });
+    }
+  });
+
+  // Admin re-score all vocab submissions (uses AI for meaning comparison)
+  app.post("/api/admin/rescore-vocab", async (req, res) => {
+    try {
+      const { password } = req.body;
+      if (password !== ADMIN_PASSWORD) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const allExams = await storage.getExams();
+      const vocabExams = allExams.filter(e => e.examType === "vocab");
+      let updatedCount = 0;
+
+      for (const exam of vocabExams) {
+        const submissions = await storage.getSubmissionsByExamId(exam.id);
+        const questions = await storage.getQuestionsByExamId(exam.id);
+
+        for (const sub of submissions) {
+          const answers = await storage.getAnswerDetailsBySubmissionId(sub.id);
+          let newTotalScore = 0;
+
+          for (const answer of answers) {
+            const question = questions.find(q => q.id === answer.questionId);
+            if (question) {
+              const studentWord = answer.studentWord.trim().toLowerCase();
+              const studentPos = answer.studentPos.trim().toLowerCase();
+              const studentMeaning = normalizeChinese(answer.studentMeaning);
+
+              const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+              const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+              const correctMeanings = question.correctMeaning.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
+
+              const wordCorrect = correctWords.includes(studentWord);
+              const posCorrect = correctPosList.includes(studentPos);
+              let meaningCorrect = correctMeanings.includes(studentMeaning);
+              let earnedScore = 0;
+
+              if (!meaningCorrect && studentMeaning.length > 0) {
+                try {
+                  const prompt = `You are grading a vocabulary test. Compare the student's Chinese meaning with the correct answer for the English word "${question.correctWord}".
+The student's answer should be considered CORRECT if it matches ANY ONE of the acceptable meanings, or is a valid synonym/paraphrase.
+
+CORRECT CHINESE MEANING(S):
+${question.correctMeaning}
+
+STUDENT'S CHINESE MEANING:
+${answer.studentMeaning}
+
+Respond in this exact JSON format only:
+{"isCorrect": <boolean>, "feedback": "<brief feedback in Chinese>"}`;
+
+                  const response = await poeClient.chat.completions.create({
+                    model: "Gemini-3-Flash",
+                    messages: [{ role: "user", content: prompt }],
+                    max_tokens: 100,
+                  });
+
+                  const content = response.choices[0]?.message?.content || "";
+                  const jsonMatch = content.match(/\{[\s\S]*\}/);
+                  if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (parsed.isCorrect) {
+                      meaningCorrect = true;
+                    }
+                  }
+                } catch (aiError) {
+                  console.error("AI re-score error:", aiError);
+                }
+              }
+
+              if (wordCorrect) earnedScore += question.wordScore;
+              if (posCorrect) earnedScore += question.posScore;
+              if (meaningCorrect) earnedScore += question.meaningScore;
+              newTotalScore += earnedScore;
+
+              const isCorrect = wordCorrect && posCorrect && meaningCorrect;
+              await storage.updateAnswerDetail(answer.id, {
+                isCorrect, wordCorrect, posCorrect, meaningCorrect, earnedScore,
+              });
+            }
+          }
+          await storage.updateSubmissionScore(sub.id, Math.round(newTotalScore));
+          updatedCount++;
+        }
+      }
+
+      res.json({ success: true, updatedSubmissions: updatedCount });
+    } catch (error) {
+      console.error("Re-score error:", error);
+      res.status(500).json({ message: "Failed to re-score" });
     }
   });
 
@@ -496,26 +589,25 @@ Respond in this exact JSON format only:
           const studentPos = answer.studentPos.trim().toLowerCase();
           const studentMeaning = normalizeChinese(answer.studentMeaning);
 
-          // Split correct answers by comma or slash
-          const correctWords = question.correctWord.split(/[,\/]/).map(w => w.trim().toLowerCase());
-          const correctPosList = question.correctPos.split(/[,\/]/).map(p => p.trim().toLowerCase());
-          const correctMeanings = question.correctMeaning.split(/[,\/]/).map(m => normalizeChinese(m));
+          // Split correct answers by comma (half/full-width), slash, or Chinese pause mark
+          const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+          const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+          const correctMeanings = question.correctMeaning.split(/[,，\/、]/).map(m => normalizeChinese(m)).filter(m => m.length > 0);
 
           const wordCorrect = correctWords.includes(studentWord);
           const posCorrect = correctPosList.includes(studentPos);
           
-          // Original exact match check for meaning
+          // Exact match check for meaning
           let meaningCorrect = correctMeanings.includes(studentMeaning);
           let earnedScore = 0;
           
           // If not an exact match and student provided an answer, use AI to check meaning
           if (!meaningCorrect && studentMeaning.length > 0) {
             try {
-              const prompt = `Compare the student's Chinese meaning with the correct one for the English word "${question.correctWord}".
-Determining if they have the same or very similar meaning.
-Note: The student might only provide one of multiple correct meanings. As long as the provided meaning is correct and matching one of the correct senses, it should be considered correct.
+              const prompt = `You are grading a vocabulary test. Compare the student's Chinese meaning with the correct answer for the English word "${question.correctWord}".
+The student's answer should be considered CORRECT if it matches ANY ONE of the acceptable meanings, or is a valid synonym/paraphrase.
 
-CORRECT CHINESE MEANING:
+CORRECT CHINESE MEANING(S):
 ${question.correctMeaning}
 
 STUDENT'S CHINESE MEANING:
@@ -540,7 +632,6 @@ Respond in this exact JSON format only:
               }
             } catch (aiError) {
               console.error("AI vocab meaning scoring error:", aiError);
-              // Fallback remains meaningCorrect = false
             }
           }
           

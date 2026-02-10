@@ -17,7 +17,8 @@ import {
   Trash2,
   Copy,
   Eye,
-  Zap
+  Zap,
+  RefreshCw
 } from "lucide-react";
 import type { Exam, StudentSubmission } from "@shared/schema";
 
@@ -52,6 +53,23 @@ export default function AdminDashboard() {
     },
     onError: (error: Error) => {
       toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const rescoreMutation = useMutation({
+    mutationFn: async () => {
+      const password = prompt("請輸入管理員密碼以進行重新評分：");
+      if (!password) throw new Error("Cancelled");
+      const response = await apiRequest("POST", "/api/admin/rescore-vocab", { password });
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/submissions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
+      toast({ title: `重新評分完成，已更新 ${data.updatedSubmissions} 份提交` });
+    },
+    onError: () => {
+      toast({ title: "重新評分失敗", variant: "destructive" });
     },
   });
 
@@ -113,6 +131,19 @@ export default function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (confirm("確定要對所有生字考試的提交紀錄進行智能重新評分嗎？這可能需要一些時間。")) {
+                  rescoreMutation.mutate();
+                }
+              }}
+              disabled={rescoreMutation.isPending}
+              data-testid="button-rescore"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${rescoreMutation.isPending ? "animate-spin" : ""}`} />
+              {rescoreMutation.isPending ? "重新評分中..." : "重新評分"}
+            </Button>
             <Link href="/teacher/quick-build">
               <Button variant="outline" data-testid="button-quick-build">
                 <Zap className="w-4 h-4 mr-2" />
