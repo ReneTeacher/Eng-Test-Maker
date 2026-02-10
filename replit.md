@@ -43,7 +43,9 @@ This application allows:
   - Paste prevention on all input fields
   - Tab/window visibility change detection with alert warning
 - Grading: All 3 parts must match (English word/POS: case-insensitive, Chinese meaning: exact match)
-- Immediate score display after submission (out of 100 points)
+- Confirmation dialog before submission ("確認交卷")
+- Post-submission results page showing score, per-question correctness indicators, and student's own answers (without revealing correct answers)
+- Gamification badges earned based on performance history
 
 ### Teacher Admin Panel (`/` or `/admin`)
 - Homepage is now the admin login (password protected via env var: ADMIN_PASSWORD)
@@ -171,6 +173,7 @@ A standalone module for rapidly creating auto-grading answer keys with multi-par
 - `DELETE /api/answer-sheets/:id` - Delete answer sheet
 - `POST /api/answer-sheets/:id/submit` - Submit student answers for grading
 - `GET /api/answer-sheets/:id/submissions` - Get submissions for an answer sheet
+- `GET /api/student-badges` - Get student's earned badges and stats (query: studentName, studentNumber, originalClass)
 
 ## Running the Application
 
@@ -182,3 +185,9 @@ The app runs on port 5000 with `npm run dev`. The database is automatically seed
 - Clean, professional UI with Shadcn components
 - Anti-cheating input controls for all answer fields
 - Chinese (Traditional) support for vocabulary meanings
+
+### Gamification Badges (`shared/badges.ts`)
+- 10 achievement badges computed on-the-fly from submission history (no extra DB tables)
+- Badges: 初試啼聲, 滿分達人, 優秀學生, 勤學不倦, 考試達人, 三連勝, 進步神速, 生字大師, 聽寫大師, 全部及格
+- Newly earned badges shown on thank-you page with animation after each exam
+- Student login page shows previously earned badges with stats
