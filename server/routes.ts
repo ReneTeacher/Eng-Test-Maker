@@ -943,7 +943,7 @@ Grading criteria (proportional to ${sentence.maxScore} points):
 - Word omission/addition (10%): Deduct points for missing or extra words
 
 Respond in this exact JSON format only:
-{"score": <number 0-${sentence.maxScore}>, "feedback": "<brief feedback in Chinese, max 20 chars, DO NOT reveal the correct sentence or any part of it>"}`;
+{"score": <number 0-${sentence.maxScore}>, "feedback": "<brief analysis in Chinese, max 30 chars, point out specific errors like spelling/punctuation/capitalization/missing words>"}`;
 
             const response = await poeClient.chat.completions.create({
               model: "gemini-2.5-flash",

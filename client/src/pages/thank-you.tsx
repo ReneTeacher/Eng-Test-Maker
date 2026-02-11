@@ -37,6 +37,8 @@ interface SentenceResult {
   earned: number;
   max: number;
   studentSentence?: string;
+  correctSentence?: string;
+  feedback?: string;
 }
 
 interface SubmissionResult {
@@ -199,7 +201,9 @@ export default function ThankYou() {
                     const isFullScore = sr.earned === sr.max;
                     const isPass = sr.earned >= sr.max * 0.6;
                     return (
-                      <div key={sr.sentenceId} className={`rounded-md p-3 border ${isFullScore ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : isPass ? "border-yellow-200 dark:border-yellow-900 bg-yellow-50/50 dark:bg-yellow-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}>
+                      <div key={sr.sentenceId} className={`rounded-md p-3 border ${isFullScore ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : isPass ? "border-yellow-200 dark:border-yellow-900 bg-yellow-50/50 dark:bg-yellow-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}
+                        data-testid={`sentence-result-${idx}`}
+                      >
                         <div className="flex items-center justify-between mb-2">
                           <span className="font-medium text-sm">第 {idx + 1} 句</span>
                           <div className="flex items-center gap-2">
@@ -213,14 +217,30 @@ export default function ThankYou() {
                             </span>
                           </div>
                         </div>
-                        {sr.studentSentence && (
-                          <div className="text-sm mt-1">
-                            <span className="text-muted-foreground">你的答案：</span>
-                            <span className={isFullScore ? "text-foreground" : "text-red-600 dark:text-red-400"}>
-                              {sr.studentSentence}
-                            </span>
-                          </div>
-                        )}
+                        <div className="space-y-1.5 text-sm">
+                          {sr.correctSentence && (
+                            <div>
+                              <span className="text-muted-foreground">正確答案：</span>
+                              <span className="text-green-700 dark:text-green-400 font-medium">
+                                {sr.correctSentence}
+                              </span>
+                            </div>
+                          )}
+                          {sr.studentSentence && (
+                            <div>
+                              <span className="text-muted-foreground">你的答案：</span>
+                              <span className={isFullScore ? "text-foreground" : "text-red-600 dark:text-red-400"}>
+                                {sr.studentSentence}
+                              </span>
+                            </div>
+                          )}
+                          {sr.feedback && !isFullScore && (
+                            <div className="mt-1 pt-1.5 border-t border-muted">
+                              <span className="text-muted-foreground">分析：</span>
+                              <span className="text-foreground">{sr.feedback}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
