@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Trophy, Home, XCircle, CircleCheck, Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck } from "lucide-react";
+import { CheckCircle, Trophy, Home, XCircle, CircleCheck, Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck, AlertTriangle, Lightbulb } from "lucide-react";
 import { BADGE_DEFINITIONS, type BadgeDefinition } from "@shared/badges";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -77,15 +77,58 @@ export default function ThankYou() {
   };
 
   const getScoreMessage = () => {
-    if (percentage >= 90) return "Excellent work!";
-    if (percentage >= 80) return "Great job!";
-    if (percentage >= 60) return "Good effort!";
-    if (percentage >= 40) return "Keep practicing!";
-    return "Don't give up!";
+    if (percentage >= 90) return "表現非常出色！繼續保持！";
+    if (percentage >= 80) return "做得很好！再接再厲！";
+    if (percentage >= 60) return "不錯的表現，繼續努力！";
+    if (percentage >= 40) return "加油！多練習一定會進步！";
+    return "別灰心，下次一定更好！";
   };
 
   const CorrectIcon = () => <CircleCheck className="w-4 h-4 text-green-500 shrink-0" />;
   const WrongIcon = () => <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
+
+  const renderWordDiff = (correct: string, student: string) => {
+    const correctWords = correct.split(/(\s+)/);
+    const studentWords = student.split(/(\s+)/);
+    const correctTokens = correctWords.filter(w => w.trim());
+    const studentTokens = studentWords.filter(w => w.trim());
+
+    return (
+      <div className="space-y-1">
+        <div>
+          <span className="text-muted-foreground text-xs">正確：</span>
+          <span className="text-green-700 dark:text-green-400 text-sm font-medium">{correct}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground text-xs">你寫：</span>
+          <span className="text-sm">
+            {studentTokens.map((word, i) => {
+              const correctWord = correctTokens[i];
+              const isMatch = correctWord && word.toLowerCase() === correctWord.toLowerCase();
+              return (
+                <span key={i}>
+                  {i > 0 && " "}
+                  <span className={isMatch ? "text-foreground" : "text-red-600 dark:text-red-400 font-medium underline decoration-wavy decoration-red-400 underline-offset-4"}>
+                    {word}
+                  </span>
+                </span>
+              );
+            })}
+            {studentTokens.length < correctTokens.length && (
+              <span className="text-orange-500 dark:text-orange-400 text-xs ml-1">
+                (漏寫 {correctTokens.length - studentTokens.length} 個字)
+              </span>
+            )}
+            {studentTokens.length > correctTokens.length && (
+              <span className="text-orange-500 dark:text-orange-400 text-xs ml-1">
+                (多寫 {studentTokens.length - correctTokens.length} 個字)
+              </span>
+            )}
+          </span>
+        </div>
+      </div>
+    );
+  };
 
   const earnedBadges: BadgeDefinition[] = (result?.earnedBadges || [])
     .map(id => BADGE_DEFINITIONS.find(b => b.id === id))
@@ -196,10 +239,14 @@ export default function ThankYou() {
 
               {isTextDictation && result.sentenceResults && result.sentenceResults.length > 0 && (
                 <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
-                  <p className="text-sm text-muted-foreground font-medium mb-2">答題詳情：</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <BookText className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground font-medium">逐句分析：</p>
+                  </div>
                   {result.sentenceResults.map((sr, idx) => {
                     const isFullScore = sr.earned === sr.max;
                     const isPass = sr.earned >= sr.max * 0.6;
+                    const lostPoints = sr.max - sr.earned;
                     return (
                       <div key={sr.sentenceId} className={`rounded-md p-3 border ${isFullScore ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : isPass ? "border-yellow-200 dark:border-yellow-900 bg-yellow-50/50 dark:bg-yellow-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}
                         data-testid={`sentence-result-${idx}`}
@@ -214,36 +261,59 @@ export default function ThankYou() {
                                 : <WrongIcon />}
                             <span className={`text-sm font-medium ${isFullScore ? "text-green-600 dark:text-green-400" : isPass ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}`}>
                               {sr.earned} / {sr.max} 分
+                              {!isFullScore && <span className="text-xs ml-1 opacity-70">(-{lostPoints})</span>}
                             </span>
                           </div>
                         </div>
-                        <div className="space-y-1.5 text-sm">
-                          {sr.correctSentence && (
-                            <div>
-                              <span className="text-muted-foreground">正確答案：</span>
-                              <span className="text-green-700 dark:text-green-400 font-medium">
-                                {sr.correctSentence}
-                              </span>
-                            </div>
-                          )}
-                          {sr.studentSentence && (
-                            <div>
-                              <span className="text-muted-foreground">你的答案：</span>
-                              <span className={isFullScore ? "text-foreground" : "text-red-600 dark:text-red-400"}>
-                                {sr.studentSentence}
-                              </span>
-                            </div>
+                        <div className="space-y-2 text-sm">
+                          {sr.correctSentence && sr.studentSentence && !isFullScore ? (
+                            renderWordDiff(sr.correctSentence, sr.studentSentence)
+                          ) : (
+                            <>
+                              {sr.correctSentence && (
+                                <div>
+                                  <span className="text-muted-foreground text-xs">正確：</span>
+                                  <span className="text-green-700 dark:text-green-400 text-sm font-medium">
+                                    {sr.correctSentence}
+                                  </span>
+                                </div>
+                              )}
+                              {sr.studentSentence && (
+                                <div>
+                                  <span className="text-muted-foreground text-xs">你寫：</span>
+                                  <span className="text-foreground text-sm">{sr.studentSentence}</span>
+                                </div>
+                              )}
+                            </>
                           )}
                           {sr.feedback && !isFullScore && (
-                            <div className="mt-1 pt-1.5 border-t border-muted">
-                              <span className="text-muted-foreground">分析：</span>
-                              <span className="text-foreground">{sr.feedback}</span>
+                            <div className="mt-1.5 pt-2 border-t border-muted">
+                              <div className="flex items-start gap-1.5">
+                                <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                                <span className="text-foreground text-xs leading-relaxed">{sr.feedback}</span>
+                              </div>
+                            </div>
+                          )}
+                          {isFullScore && sr.feedback && (
+                            <div className="flex items-start gap-1.5 mt-1">
+                              <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
+                              <span className="text-green-700 dark:text-green-400 text-xs">{sr.feedback}</span>
                             </div>
                           )}
                         </div>
                       </div>
                     );
                   })}
+                  <div className="mt-2 pt-2 border-t border-muted text-center">
+                    <p className="text-xs text-muted-foreground">
+                      {(() => {
+                        const total = result.sentenceResults!.length;
+                        const perfect = result.sentenceResults!.filter(s => s.earned === s.max).length;
+                        const totalLost = result.sentenceResults!.reduce((sum, s) => sum + (s.max - s.earned), 0);
+                        return `共 ${total} 句，滿分 ${perfect} 句，總共扣 ${totalLost} 分`;
+                      })()}
+                    </p>
+                  </div>
                 </div>
               )}
             </>

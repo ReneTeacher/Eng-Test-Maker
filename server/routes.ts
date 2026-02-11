@@ -927,12 +927,21 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           let sentenceFeedback = "";
           
           try {
-            const prompt = `Grade this dictation leniently. Full=${sentence.maxScore}pts. Deduct: misspelled word -1pt, missing/extra word -1pt, punctuation error -0.5pt, capitalization -0.5pt total. Minor typo(1-2 letters off) -0.5pt only. Be generous.
+            const prompt = `你是英語聽寫考試的評分老師。請仔細比對學生答案和正確答案，然後評分。
 
-Correct: ${sentence.correctSentence}
-Student: ${studentSentence}
+滿分：${sentence.maxScore}分
+扣分標準：拼錯單字 -1分，漏寫/多寫單字 -1分，標點錯誤(整句共) -0.5分，大小寫錯誤(整句共) -0.5分，輕微拼寫錯誤(只差1-2個字母) -0.5分。請寬鬆評分。
 
-Reply ONLY with JSON. Feedback in Traditional Chinese, max 20 chars, be encouraging but mention specific wrong words if any:
+正確答案：${sentence.correctSentence}
+學生答案：${studentSentence}
+
+請用JSON格式回覆。feedback欄位請用繁體中文，要具體指出錯誤：
+1. 列出每個拼錯的單字（寫出學生寫的→正確的）
+2. 指出漏寫或多寫的單字
+3. 指出標點或大小寫問題
+4. 如果全對，給予鼓勵
+feedback請控制在80字以內。
+
 {"score":N,"feedback":"..."}`;
 
 
@@ -1082,12 +1091,21 @@ Reply ONLY with JSON. Feedback in Traditional Chinese, max 20 chars, be encourag
       let feedback = "";
 
       try {
-        const prompt = `Grade this dictation leniently. Full=100pts. Deduct: misspelled word -1pt, missing/extra word -1pt, punctuation error -0.5pt, capitalization -0.5pt total. Minor typo(1-2 letters off) -0.5pt only. Be generous.
+        const prompt = `你是英語聽寫考試的評分老師。請仔細比對學生答案和正確答案，然後評分。
 
-Correct: ${exam.correctText}
-Student: ${studentText}
+滿分：100分
+扣分標準：拼錯單字 -1分，漏寫/多寫單字 -1分，標點錯誤(整句共) -0.5分，大小寫錯誤(整句共) -0.5分，輕微拼寫錯誤(只差1-2個字母) -0.5分。請寬鬆評分。
 
-Reply ONLY with JSON. Feedback in Traditional Chinese, max 30 chars, be encouraging but mention specific errors:
+正確答案：${exam.correctText}
+學生答案：${studentText}
+
+請用JSON格式回覆。feedback欄位請用繁體中文，要具體指出錯誤：
+1. 列出每個拼錯的單字（寫出學生寫的→正確的）
+2. 指出漏寫或多寫的單字
+3. 指出標點或大小寫問題
+4. 如果全對，給予鼓勵
+feedback請控制在150字以內。
+
 {"score":N,"feedback":"..."}`;
 
         const response = await poeClient.chat.completions.create({
