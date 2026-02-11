@@ -20,7 +20,7 @@ import {
   Zap,
   RefreshCw
 } from "lucide-react";
-import type { Exam, StudentSubmission } from "@shared/schema";
+import type { Exam, StudentSubmission, TextSubmission } from "@shared/schema";
 
 export default function AdminDashboard() {
   const [, navigate] = useLocation();
@@ -39,6 +39,10 @@ export default function AdminDashboard() {
 
   const { data: submissions, isLoading: submissionsLoading } = useQuery<StudentSubmission[]>({
     queryKey: ["/api/submissions"],
+  });
+
+  const { data: textSubmissions } = useQuery<TextSubmission[]>({
+    queryKey: ["/api/text-submissions"],
   });
 
   const deleteExamMutation = useMutation({
@@ -202,7 +206,7 @@ export default function AdminDashboard() {
                   <Users className="w-6 h-6 text-green-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{submissions?.length || 0}</p>
+                  <p className="text-2xl font-bold">{(submissions?.length || 0) + (textSubmissions?.length || 0)}</p>
                   <p className="text-sm text-muted-foreground">Total Submissions</p>
                 </div>
               </div>
@@ -249,7 +253,9 @@ export default function AdminDashboard() {
                 </TableHeader>
                 <TableBody>
                   {exams.map((exam) => {
-                    const examSubmissions = submissions?.filter(s => s.examId === exam.id) || [];
+                    const examSubmissions = exam.examType === "text"
+                      ? textSubmissions?.filter(s => s.examId === exam.id) || []
+                      : submissions?.filter(s => s.examId === exam.id) || [];
                     return (
                       <TableRow key={exam.id}>
                         <TableCell className="font-medium">{exam.title}</TableCell>
