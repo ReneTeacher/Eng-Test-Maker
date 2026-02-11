@@ -56,15 +56,45 @@ export default function StudentExam() {
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
     if (!stored) {
-      navigate(id ? `/exam/${id}` : "/");
+      navigate(id ? `/exam/${id}` : `/exam/${id}`);
       return;
     }
     try {
       setStudentInfo(JSON.parse(stored));
     } catch {
-      navigate(id ? `/exam/${id}` : "/");
+      navigate(id ? `/exam/${id}` : `/exam/${id}`);
     }
   }, [navigate, id]);
+
+  useEffect(() => {
+    const blockBack = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
+    };
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", blockBack);
+
+    const blockBackspace = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+      if ((e.key === "Backspace" || e.key === "Delete") && !isInput) {
+        e.preventDefault();
+      }
+    };
+    document.addEventListener("keydown", blockBackspace);
+
+    const warnBeforeLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeave);
+
+    return () => {
+      window.removeEventListener("popstate", blockBack);
+      document.removeEventListener("keydown", blockBackspace);
+      window.removeEventListener("beforeunload", warnBeforeLeave);
+    };
+  }, []);
 
   const { data: activeExam, isLoading, error } = useQuery<ActiveExam>({
     queryKey: [`/api/exams/${id}`],
@@ -181,6 +211,13 @@ export default function StudentExam() {
     return false;
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const target = e.target as HTMLElement;
+    if (e.key === "Enter" && target.tagName !== "TEXTAREA") {
+      e.preventDefault();
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -283,7 +320,7 @@ export default function StudentExam() {
             <AlertCircle className="w-12 h-12 text-destructive mx-auto mb-4" />
             <h2 className="text-xl font-bold mb-2">找不到測驗</h2>
             <p className="text-muted-foreground mb-6">目前沒有進行中的測驗。</p>
-            <Button onClick={() => navigate("/")}>返回</Button>
+            <Button onClick={() => navigate(id ? `/exam/${id}` : "/")}>返回登入</Button>
           </CardContent>
         </Card>
       </div>
@@ -330,7 +367,7 @@ export default function StudentExam() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="space-y-6">
               {isTextExam ? (
                 hasSentences ? (
                   <div className="space-y-4">
@@ -348,6 +385,9 @@ export default function StudentExam() {
                           }))}
                           onPaste={handlePaste}
                           autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                           className="h-11"
                         />
                       </div>
@@ -360,6 +400,10 @@ export default function StudentExam() {
                       value={textAnswer}
                       onChange={(e) => setTextAnswer(e.target.value)}
                       onPaste={handlePaste}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
                       className="min-h-[200px]"
                     />
                   </div>
@@ -378,6 +422,9 @@ export default function StudentExam() {
                           onChange={(e) => handleAnswerChange(question.id, "word", e.target.value)}
                           onPaste={handlePaste}
                           autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                         />
                         <Input
                           placeholder="Part of Speech"
@@ -385,6 +432,9 @@ export default function StudentExam() {
                           onChange={(e) => handleAnswerChange(question.id, "pos", e.target.value)}
                           onPaste={handlePaste}
                           autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                         />
                         <Input
                           placeholder="Chinese Meaning"
@@ -392,6 +442,9 @@ export default function StudentExam() {
                           onChange={(e) => handleAnswerChange(question.id, "meaning", e.target.value)}
                           onPaste={handlePaste}
                           autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
                         />
                       </div>
                     </CardContent>
@@ -399,7 +452,7 @@ export default function StudentExam() {
                 ))
               )}
 
-              <Button type="submit" className="w-full h-12 text-lg" disabled={isSubmitting} data-testid="button-submit-exam">
+              <Button type="button" onClick={handleSubmit as any} className="w-full h-12 text-lg" disabled={isSubmitting} data-testid="button-submit-exam">
                 {isSubmitting ? "正在提交..." : "提交測驗"}
               </Button>
             </form>
