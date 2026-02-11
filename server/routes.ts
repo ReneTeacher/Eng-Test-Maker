@@ -1038,8 +1038,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     const unmatchedStudent = studentWordsLower.map((_, idx) => idx).filter(idx => !matchedStudentIdx.has(idx));
 
     const typos: { student: string; correct: string; dist: number }[] = [];
-    const typoPairedCorrect = new Set<number>();
-    const typoPairedStudent = new Set<number>();
+    const pairedCorrect = new Set<number>();
+    const pairedStudent = new Set<number>();
 
     const maxTypoDist = (word: string) => word.length <= 3 ? 1 : 2;
 
@@ -1055,22 +1055,47 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
     candidates.sort((a, b) => a.dist - b.dist || a.posDiff - b.posDiff);
     for (const c of candidates) {
-      if (typoPairedCorrect.has(c.cidx) || typoPairedStudent.has(c.sidx)) continue;
+      if (pairedCorrect.has(c.cidx) || pairedStudent.has(c.sidx)) continue;
       typos.push({ student: studentWords[c.sidx], correct: correctWords[c.cidx], dist: c.dist });
-      typoPairedCorrect.add(c.cidx);
-      typoPairedStudent.add(c.sidx);
+      pairedCorrect.add(c.cidx);
+      pairedStudent.add(c.sidx);
+    }
+
+    const badlyMisspelled: { student: string; correct: string }[] = [];
+    const remainingCorrect = unmatchedCorrect.filter(idx => !pairedCorrect.has(idx));
+    const remainingStudent = unmatchedStudent.filter(idx => !pairedStudent.has(idx));
+
+    if (remainingCorrect.length > 0 && remainingStudent.length > 0) {
+      const posCandidates: { cidx: number; sidx: number; posDiff: number; dist: number }[] = [];
+      for (const cidx of remainingCorrect) {
+        for (const sidx of remainingStudent) {
+          const posDiff = Math.abs(cidx - sidx);
+          const dist = levenshtein(correctWordsLower[cidx], studentWordsLower[sidx]);
+          posCandidates.push({ cidx, sidx, posDiff, dist });
+        }
+      }
+      posCandidates.sort((a, b) => a.posDiff - b.posDiff || a.dist - b.dist);
+      for (const pc of posCandidates) {
+        if (pairedCorrect.has(pc.cidx) || pairedStudent.has(pc.sidx)) continue;
+        const maxPosDiff = Math.max(3, Math.floor(correctWords.length * 0.3));
+        if (pc.posDiff <= maxPosDiff) {
+          badlyMisspelled.push({ student: studentWords[pc.sidx], correct: correctWords[pc.cidx] });
+          pairedCorrect.add(pc.cidx);
+          pairedStudent.add(pc.sidx);
+        }
+      }
     }
 
     const missingWords: string[] = [];
     for (const idx of unmatchedCorrect) {
-      if (!typoPairedCorrect.has(idx)) {
+      if (!pairedCorrect.has(idx)) {
         missingWords.push(correctWords[idx]);
       }
     }
 
     const extraWords: string[] = [];
     for (const idx of unmatchedStudent) {
-      if (!typoPairedStudent.has(idx)) {
+      if (!pairedStudent.has(idx)) {
         extraWords.push(studentWords[idx]);
       }
     }
@@ -1090,6 +1115,15 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     let totalDeductions = 0;
     const details: string[] = [];
 
+    for (const t of typos) {
+      const d = t.dist === 1 ? 0.5 : 1;
+      totalDeductions += d;
+      details.push(`拼錯 "${t.student}"→"${t.correct}" -${d}分`);
+    }
+    for (const bm of badlyMisspelled) {
+      totalDeductions += 1;
+      details.push(`拼錯 "${bm.student}"→"${bm.correct}" -1分`);
+    }
     if (missingWords.length > 0) {
       const d = missingWords.length;
       totalDeductions += d;
@@ -1099,11 +1133,6 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       const d = extraWords.length;
       totalDeductions += d;
       details.push(`多寫 ${extraWords.length} 個字 (${extraWords.map(w => `"${w}"`).join("、")}) -${d}分`);
-    }
-    for (const t of typos) {
-      const d = t.dist === 1 ? 0.5 : 1;
-      totalDeductions += d;
-      details.push(`拼錯 "${t.student}"→"${t.correct}" -${d}分`);
     }
     if (hasPuncError) {
       totalDeductions += 0.5;
