@@ -1035,12 +1035,17 @@ Respond in this exact JSON format only:
           totalScore,
           maxScore,
           earnedBadges,
-          sentenceResults: sentenceResults.map(r => ({
-            sentenceId: r.sentenceId,
-            earned: r.earned,
-            max: r.max,
-            studentSentence: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
-          })),
+          sentenceResults: sentenceResults.map(r => {
+            const sentence = sentences.find(s => s.id === r.sentenceId);
+            return {
+              sentenceId: r.sentenceId,
+              earned: r.earned,
+              max: r.max,
+              studentSentence: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
+              correctSentence: sentence?.correctSentence || "",
+              feedback: r.feedback || "",
+            };
+          }),
           studentName,
         });
         return;
