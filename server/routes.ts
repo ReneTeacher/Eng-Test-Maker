@@ -1490,6 +1490,118 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
   });
 
+  // Re-score all text submissions for an exam
+  app.post("/api/exams/:id/rescore", async (req, res) => {
+    try {
+      const examId = parseInt(req.params.id);
+      const exam = await storage.getExamById(examId);
+      if (!exam) {
+        res.status(404).json({ message: "Exam not found" });
+        return;
+      }
+
+      let rescored = 0;
+
+      if (exam.examType === "text") {
+        const sentences = await storage.getTextSentencesByExamId(examId);
+        if (sentences.length === 0) {
+          res.status(400).json({ message: "No sentences found for this exam" });
+          return;
+        }
+
+        const submissions = await storage.getTextSubmissionsByExamId(examId);
+
+        for (const submission of submissions) {
+          const answerDetails = await storage.getTextAnswerDetailsBySubmissionId(submission.id);
+          if (answerDetails.length === 0) continue;
+
+          let totalScore = 0;
+          
+          for (const detail of answerDetails) {
+            const sentence = sentences.find(s => s.id === detail.sentenceId);
+            if (!sentence) continue;
+            
+            const scoreResult = computeSentenceScore(sentence.correctSentence, detail.studentSentence, sentence.maxScore);
+            const earnedScore = scoreResult.earned;
+            
+            let sentenceFeedback = "";
+            if (scoreResult.details.length === 0) {
+              sentenceFeedback = "完全正確！非常好！";
+            } else {
+              sentenceFeedback = scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
+            }
+            
+            totalScore += earnedScore;
+            
+            await storage.updateTextAnswerDetail(detail.id, {
+              earnedScore: Math.round(earnedScore),
+              feedback: sentenceFeedback,
+            });
+          }
+          
+          const finalTotalScore = Math.round(totalScore);
+          await storage.updateTextSubmissionScore(submission.id, finalTotalScore);
+          
+          const updatedDetails = await storage.getTextAnswerDetailsBySubmissionId(submission.id);
+          const feedbackSummary = updatedDetails.map((d, i) => {
+            const sent = sentences.find(s => s.id === d.sentenceId);
+            return `第${i + 1}句: ${d.earnedScore}/${sent?.maxScore || 0}分`;
+          }).join("; ");
+          await db.update(textSubmissions).set({ feedback: feedbackSummary }).where(eq(textSubmissions.id, submission.id));
+          
+          rescored++;
+        }
+      } else {
+        const questions = await storage.getQuestionsByExamId(examId);
+        const submissions = await storage.getSubmissionsByExamId(examId);
+
+        for (const sub of submissions) {
+          const answers = await storage.getAnswerDetailsBySubmissionId(sub.id);
+          let newTotalScore = 0;
+
+          for (const answer of answers) {
+            const question = questions.find(q => q.id === answer.questionId);
+            if (!question) continue;
+
+            const wordCorrect = answer.studentWord?.trim().toLowerCase() === question.correctWord.trim().toLowerCase();
+            const posCorrect = answer.studentPos?.trim().toLowerCase() === question.correctPos.trim().toLowerCase();
+            
+            let meaningCorrect = false;
+            const studentMeaning = (answer.studentMeaning || "").trim();
+            const correctMeaning = (question.correctMeaning || "").trim();
+            if (studentMeaning === correctMeaning) {
+              meaningCorrect = true;
+            } else {
+              const normStudent = convertSimplifiedToTraditional(normalizeChinese(studentMeaning));
+              const normCorrect = convertSimplifiedToTraditional(normalizeChinese(correctMeaning));
+              meaningCorrect = normStudent === normCorrect;
+            }
+
+            const isCorrect = wordCorrect && posCorrect && meaningCorrect;
+            let wordScore = wordCorrect ? (question.wordScore || 0) : 0;
+            let posScore = posCorrect ? (question.posScore || 0) : 0;
+            let meaningScore = meaningCorrect ? (question.meaningScore || 0) : 0;
+            const totalPartScore = wordScore + posScore + meaningScore;
+            newTotalScore += totalPartScore;
+
+            await storage.updateAnswerDetail(answer.id, {
+              isCorrect,
+              earnedScore: totalPartScore,
+            });
+          }
+
+          await db.update(studentSubmissions).set({ totalScore: newTotalScore }).where(eq(studentSubmissions.id, sub.id));
+          rescored++;
+        }
+      }
+
+      res.json({ message: `已重新批改 ${rescored} 份提交`, rescored });
+    } catch (error) {
+      console.error("Rescore error:", error);
+      res.status(500).json({ message: "重新批改失敗" });
+    }
+  });
+
   // Get analytics for an exam
   app.get("/api/exams/:id/analytics", async (req, res) => {
     try {

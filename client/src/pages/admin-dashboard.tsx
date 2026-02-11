@@ -73,6 +73,22 @@ export default function AdminDashboard() {
     },
   });
 
+  const rescoreExamMutation = useMutation({
+    mutationFn: async (examId: number) => {
+      const response = await apiRequest("POST", `/api/exams/${examId}/rescore`);
+      return response.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/exams"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/submissions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/text-submissions"] });
+      toast({ title: `重新批改完成`, description: `已更新 ${data.rescored} 份提交的分數` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "重新批改失敗", description: error.message, variant: "destructive" });
+    },
+  });
+
   const handleExport = async (examId?: number) => {
     try {
       const url = examId ? `/api/export?examId=${examId}` : "/api/export";
@@ -284,6 +300,20 @@ export default function AdminDashboard() {
                                 <FileText className="w-4 h-4" />
                               </Button>
                             </Link>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                if (confirm("確定要重新批改此考試的所有提交嗎？這將使用最新的評分演算法重新計算所有分數。")) {
+                                  rescoreExamMutation.mutate(exam.id);
+                                }
+                              }}
+                              disabled={rescoreExamMutation.isPending}
+                              title="重新批改"
+                              data-testid={`button-rescore-${exam.id}`}
+                            >
+                              <RefreshCw className={`w-4 h-4 ${rescoreExamMutation.isPending ? "animate-spin" : ""}`} />
+                            </Button>
                             <Button
                               size="sm"
                               variant="ghost"
