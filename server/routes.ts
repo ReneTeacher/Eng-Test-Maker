@@ -899,14 +899,46 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
     const normalizePunctuation = (s: string): string => {
       return s
-        .replace(/[\u2013\u2014\u2015]/g, '-')
+        .replace(/[\u2013\u2014\u2015]/g, ' - ')
         .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
         .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
         .replace(/\u2026/g, '...')
-        .replace(/\u00A0/g, ' ');
+        .replace(/\u00A0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
     };
 
-    const tokenize = (s: string): string[] => {
+    const splitHyphenatedWord = (word: string, referenceHyphenated: string[]): string[] => {
+      const wordLower = word.toLowerCase();
+      if (referenceHyphenated.some(ref => ref.toLowerCase() === wordLower)) {
+        return [word];
+      }
+      for (const ref of referenceHyphenated) {
+        const refLower = ref.toLowerCase();
+        if (wordLower.startsWith(refLower + '-')) {
+          const remainder = word.slice(ref.length + 1);
+          const result = [word.slice(0, ref.length), '-'];
+          if (remainder) result.push(remainder);
+          return result;
+        }
+        if (wordLower.endsWith('-' + refLower)) {
+          const prefix = word.slice(0, word.length - ref.length - 1);
+          const result: string[] = [];
+          if (prefix) result.push(prefix);
+          result.push('-', word.slice(word.length - ref.length));
+          return result;
+        }
+      }
+      const parts = word.split('-');
+      const result: string[] = [];
+      for (let i = 0; i < parts.length; i++) {
+        if (parts[i]) result.push(parts[i]);
+        if (i < parts.length - 1) result.push('-');
+      }
+      return result;
+    };
+
+    const tokenize = (s: string, referenceHyphenated?: string[]): string[] => {
       const norm = normalizePunctuation(s);
       const tokens: string[] = [];
       const regex = /[A-Za-z]+(?:['-][A-Za-z]+)*/g;
@@ -919,7 +951,13 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             tokens.push(ch);
           }
         }
-        tokens.push(match[0]);
+        const word = match[0];
+        if (word.includes('-') && referenceHyphenated && referenceHyphenated.length > 0) {
+          const split = splitHyphenatedWord(word, referenceHyphenated);
+          tokens.push(...split);
+        } else {
+          tokens.push(word);
+        }
         lastIdx = regex.lastIndex;
       }
       const remaining = norm.slice(lastIdx);
@@ -934,7 +972,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     const isPunc = (token: string): boolean => /^[.,!?;:'"()\-\[\]{}]$/.test(token);
 
     const allCorrectTokens = tokenize(correctSentence);
-    const allStudentTokens = tokenize(studentSentence);
+    const correctHyphenated = allCorrectTokens.filter(t => !isPunc(t) && t.includes('-'));
+    const allStudentTokens = tokenize(studentSentence, correctHyphenated);
 
     const correctWords = allCorrectTokens.filter(t => !isPunc(t));
     const studentWords = allStudentTokens.filter(t => !isPunc(t));
