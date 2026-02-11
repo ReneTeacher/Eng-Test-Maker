@@ -892,6 +892,149 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
   });
 
+  function computeSentenceScore(correctSentence: string, studentSentence: string, maxScore: number) {
+    if (!studentSentence.trim()) {
+      return { earned: 0, deductions: maxScore, details: ["未填寫，扣全部 " + maxScore + " 分"] };
+    }
+
+    const extractWords = (s: string) => s.replace(/[.,!?;:'"()\-\[\]{}]/g, '').trim().split(/\s+/).filter(w => w.length > 0);
+    const extractPunc = (s: string) => (s.match(/[.,!?;:'"()\-\[\]{}]/g) || []).join('');
+
+    const correctWords = extractWords(correctSentence);
+    const studentWords = extractWords(studentSentence);
+    const correctWordsLower = correctWords.map(w => w.toLowerCase());
+    const studentWordsLower = studentWords.map(w => w.toLowerCase());
+
+    const levenshtein = (a: string, b: string): number => {
+      const m = a.length, n = b.length;
+      const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+      for (let i = 0; i <= m; i++) dp[i][0] = i;
+      for (let j = 0; j <= n; j++) dp[0][j] = j;
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          dp[i][j] = Math.min(
+            dp[i - 1][j] + 1,
+            dp[i][j - 1] + 1,
+            dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+          );
+        }
+      }
+      return dp[m][n];
+    };
+
+    const lcsLength = (a: string[], b: string[]): number[][] => {
+      const m = a.length, n = b.length;
+      const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          if (a[i - 1] === b[j - 1]) {
+            dp[i][j] = dp[i - 1][j - 1] + 1;
+          } else {
+            dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+          }
+        }
+      }
+      return dp;
+    };
+
+    const dp = lcsLength(correctWordsLower, studentWordsLower);
+    const matched: { ci: number; si: number }[] = [];
+    let i = correctWordsLower.length, j = studentWordsLower.length;
+    while (i > 0 && j > 0) {
+      if (correctWordsLower[i - 1] === studentWordsLower[j - 1]) {
+        matched.unshift({ ci: i - 1, si: j - 1 });
+        i--; j--;
+      } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+        i--;
+      } else {
+        j--;
+      }
+    }
+
+    const matchedCorrectIdx = new Set(matched.map(m => m.ci));
+    const matchedStudentIdx = new Set(matched.map(m => m.si));
+
+    const typos: { student: string; correct: string; dist: number }[] = [];
+    const typoPairedCorrect = new Set<number>();
+    const typoPairedStudent = new Set<number>();
+
+    const candidates: { cidx: number; sidx: number; dist: number }[] = [];
+    for (let cidx = 0; cidx < correctWords.length; cidx++) {
+      if (matchedCorrectIdx.has(cidx)) continue;
+      for (let sidx = 0; sidx < studentWords.length; sidx++) {
+        if (matchedStudentIdx.has(sidx)) continue;
+        const dist = levenshtein(correctWordsLower[cidx], studentWordsLower[sidx]);
+        if (dist > 0 && dist <= 2) {
+          candidates.push({ cidx, sidx, dist });
+        }
+      }
+    }
+    candidates.sort((a, b) => a.dist - b.dist);
+    for (const c of candidates) {
+      if (typoPairedCorrect.has(c.cidx) || typoPairedStudent.has(c.sidx)) continue;
+      typos.push({ student: studentWords[c.sidx], correct: correctWords[c.cidx], dist: c.dist });
+      typoPairedCorrect.add(c.cidx);
+      typoPairedStudent.add(c.sidx);
+    }
+
+    const missingWords: string[] = [];
+    for (let idx = 0; idx < correctWords.length; idx++) {
+      if (!matchedCorrectIdx.has(idx) && !typoPairedCorrect.has(idx)) {
+        missingWords.push(correctWords[idx]);
+      }
+    }
+
+    const extraWords: string[] = [];
+    for (let idx = 0; idx < studentWords.length; idx++) {
+      if (!matchedStudentIdx.has(idx) && !typoPairedStudent.has(idx)) {
+        extraWords.push(studentWords[idx]);
+      }
+    }
+
+    let hasCaseError = false;
+    for (const m of matched) {
+      if (correctWords[m.ci] !== studentWords[m.si] && correctWordsLower[m.ci] === studentWordsLower[m.si]) {
+        hasCaseError = true;
+        break;
+      }
+    }
+
+    const correctPunc = extractPunc(correctSentence);
+    const studentPunc = extractPunc(studentSentence);
+    const hasPuncError = correctPunc !== studentPunc;
+
+    let totalDeductions = 0;
+    const details: string[] = [];
+
+    if (missingWords.length > 0) {
+      const d = missingWords.length;
+      totalDeductions += d;
+      details.push(`漏寫 ${missingWords.length} 個字 (${missingWords.map(w => `"${w}"`).join("、")}) -${d}分`);
+    }
+    if (extraWords.length > 0) {
+      const d = extraWords.length;
+      totalDeductions += d;
+      details.push(`多寫 ${extraWords.length} 個字 (${extraWords.map(w => `"${w}"`).join("、")}) -${d}分`);
+    }
+    for (const t of typos) {
+      const d = t.dist === 1 ? 0.5 : 1;
+      totalDeductions += d;
+      details.push(`拼錯 "${t.student}"→"${t.correct}" -${d}分`);
+    }
+    if (hasPuncError) {
+      totalDeductions += 0.5;
+      details.push(`標點符號錯誤 -0.5分`);
+    }
+    if (hasCaseError) {
+      totalDeductions += 0.5;
+      details.push(`大小寫錯誤 -0.5分`);
+    }
+
+    const rawScore = Math.max(0, maxScore - totalDeductions);
+    const earned = Math.round(rawScore * 2) / 2;
+    return { earned: Math.min(maxScore, earned), deductions: totalDeductions, details };
+  }
+
   // Submit Text Dictation (AI-scored) - supports sentence-by-sentence or full text mode
   app.post("/api/text-submissions", async (req, res) => {
     try {
@@ -923,89 +1066,36 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           const studentSentence = answer?.studentSentence || "";
           maxScore += sentence.maxScore;
           
-          let earnedScore = 0;
+          const scoreResult = computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
+          let earnedScore = scoreResult.earned;
           let sentenceFeedback = "";
-          
-          try {
-            const prompt = `你是英語聽寫考試的嚴格評分老師。請逐字比對學生答案和正確答案，嚴格按照以下扣分標準計算分數。
 
-滿分：${sentence.maxScore}分
-扣分標準（必須嚴格遵守，逐項計算）：
-- 每個拼錯的單字：-1分（例如 studens → students，扣1分）
-- 每個漏寫的單字：-1分（正確答案有但學生沒寫的字，每個扣1分）
-- 每個多寫的單字：-1分（學生寫了但正確答案沒有的字，每個扣1分）
-- 輕微拼寫錯誤（只差1-2個字母）：-0.5分
-- 標點符號錯誤（整句合計）：-0.5分
-- 大小寫錯誤（整句合計）：-0.5分
-最低0分，不會出現負分。
+          if (scoreResult.details.length === 0) {
+            sentenceFeedback = "完全正確！非常好！";
+          } else {
+            sentenceFeedback = scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
+            
+            try {
+              const prompt = `你是英語聽寫考試的老師。以下是一位學生的聽寫結果，請根據扣分明細，用繁體中文給出簡短、有建設性的學習建議（不要重複扣分明細，只給建議）。控制在40字以內。
 
 正確答案：${sentence.correctSentence}
 學生答案：${studentSentence}
+扣分明細：${scoreResult.details.join("；")}
 
-請嚴格逐字比對，計算總扣分，然後用 滿分-總扣分 = 得分。
-請用JSON格式回覆。feedback欄位請用繁體中文，必須包含：
-1. 扣分明細（例如：漏寫"the" -1分、拼錯"studens"→"students" -1分）
-2. 總扣分和最終得分的計算過程
-feedback請控制在120字以內。
+只回覆建議文字，不要JSON。`;
 
-{"score":N,"feedback":"..."}`;
-
-
-            const response = await poeClient.chat.completions.create({
-              model: "gemini-2.5-flash",
-              messages: [{ role: "user", content: prompt }],
-              max_tokens: 600,
-              temperature: 0.1,
-            });
-
-            let content = response.choices[0]?.message?.content || "";
-            content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-            console.log("AI response for sentence:", content);
-
-            let parsed: any = null;
-            const jsonMatch = content.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              try { parsed = JSON.parse(jsonMatch[0]); } catch {}
-            }
-            if (!parsed) {
-              const scoreMatch = content.match(/"score"\s*:\s*([\d.]+)/);
-              const feedbackMatch = content.match(/"feedback"\s*:\s*"([^"]*)/);
-              if (scoreMatch) {
-                parsed = {
-                  score: parseFloat(scoreMatch[1]),
-                  feedback: feedbackMatch ? feedbackMatch[1] : "",
-                };
+              const response = await poeClient.chat.completions.create({
+                model: "gemini-2.5-flash",
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: 200,
+                temperature: 0.3,
+              });
+              const aiAdvice = (response.choices[0]?.message?.content || "").trim();
+              if (aiAdvice && aiAdvice.length < 100) {
+                sentenceFeedback += `。建議：${aiAdvice}`;
               }
-            }
-            if (parsed && parsed.score !== undefined) {
-              earnedScore = Math.max(0, Math.min(sentence.maxScore, Math.round(Number(parsed.score) || 0)));
-              sentenceFeedback = parsed.feedback || "";
-            } else {
-              console.error("Could not parse AI response:", content);
-            }
-          } catch (aiError: any) {
-            console.error("AI scoring error for sentence:", aiError?.message || aiError);
-            const correctWords = sentence.correctSentence.toLowerCase().replace(/[^\w\s']/g, '').trim().split(/\s+/);
-            const studentWords = studentSentence.toLowerCase().replace(/[^\w\s']/g, '').trim().split(/\s+/);
-            
-            if (!studentSentence.trim()) {
-              earnedScore = 0;
-              sentenceFeedback = "未填寫";
-            } else {
-              let deductions = 0;
-              const maxWords = Math.max(correctWords.length, studentWords.length);
-              for (let i = 0; i < maxWords; i++) {
-                if (!correctWords[i] || !studentWords[i]) {
-                  deductions += 1;
-                } else if (correctWords[i] !== studentWords[i]) {
-                  deductions += 1;
-                }
-              }
-              const correctPunc = (sentence.correctSentence.match(/[.,!?;:'"()-]/g) || []).join('');
-              const studentPunc = (studentSentence.match(/[.,!?;:'"()-]/g) || []).join('');
-              if (correctPunc !== studentPunc) deductions += 0.5;
-              earnedScore = Math.max(0, Math.round(sentence.maxScore - deductions));
-              sentenceFeedback = deductions === 0 ? "完全正確！" : "基本比對評分，請老師覆核";
+            } catch (aiErr: any) {
+              console.error("AI feedback error:", aiErr?.message || aiErr);
             }
           }
           
@@ -1028,6 +1118,8 @@ feedback請控制在120字以內。
           .map((a: { studentSentence: string }) => a.studentSentence)
           .join(" ");
         
+        const finalTotalScore = Math.round(totalScore);
+
         // Save submission
         const submission = await storage.createTextSubmission({
           examId,
@@ -1036,9 +1128,9 @@ feedback請控制在120字以內。
           originalClass,
           mixedClass,
           studentText: combinedText,
-          totalScore,
+          totalScore: finalTotalScore,
           maxScore,
-          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${r.earned}/${r.max}分`).join("; "),
+          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("; "),
         });
         
         // Save sentence answer details
@@ -1046,7 +1138,7 @@ feedback請控制在120字以內。
           submissionId: submission.id,
           sentenceId: r.sentenceId,
           studentSentence: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
-          earnedScore: r.earned,
+          earnedScore: Math.round(r.earned),
           feedback: r.feedback,
         }));
         await storage.createTextAnswerDetails(answerDetails);
@@ -1063,14 +1155,14 @@ feedback請控制在120字以內。
         }
 
         res.json({
-          totalScore,
+          totalScore: finalTotalScore,
           maxScore,
           earnedBadges,
           sentenceResults: sentenceResults.map(r => {
             const sentence = sentences.find(s => s.id === r.sentenceId);
             return {
               sentenceId: r.sentenceId,
-              earned: r.earned,
+              earned: Math.round(r.earned),
               max: r.max,
               studentSentence: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
               correctSentence: sentence?.correctSentence || "",
@@ -1093,71 +1185,11 @@ feedback請控制在120字以內。
         return;
       }
 
-      let totalScore = 0;
-      let feedback = "";
-
-      try {
-        const prompt = `你是英語聽寫考試的嚴格評分老師。請逐字比對學生答案和正確答案，嚴格按照以下扣分標準計算分數。
-
-滿分：100分
-扣分標準（必須嚴格遵守，逐項計算）：
-- 每個拼錯的單字：-1分（例如 studens → students，扣1分）
-- 每個漏寫的單字：-1分（正確答案有但學生沒寫的字，每個扣1分）
-- 每個多寫的單字：-1分（學生寫了但正確答案沒有的字，每個扣1分）
-- 輕微拼寫錯誤（只差1-2個字母）：-0.5分
-- 標點符號錯誤（整句合計）：-0.5分
-- 大小寫錯誤（整句合計）：-0.5分
-最低0分，不會出現負分。
-
-正確答案：${exam.correctText}
-學生答案：${studentText}
-
-請嚴格逐字比對，計算總扣分，然後用 滿分-總扣分 = 得分。
-請用JSON格式回覆。feedback欄位請用繁體中文，必須包含：
-1. 扣分明細（例如：漏寫"the" -1分、拼錯"studens"→"students" -1分）
-2. 總扣分和最終得分的計算過程
-feedback請控制在200字以內。
-
-{"score":N,"feedback":"..."}`;
-
-        const response = await poeClient.chat.completions.create({
-          model: "gemini-2.5-flash",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 800,
-          temperature: 0.1,
-        });
-
-        let content = response.choices[0]?.message?.content || "";
-        content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-        let parsed: any = null;
-        const jsonMatch = content.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); } catch {}
-        }
-        if (!parsed) {
-          const scoreMatch = content.match(/"score"\s*:\s*([\d.]+)/);
-          const feedbackMatch = content.match(/"feedback"\s*:\s*"([^"]*)/);
-          if (scoreMatch) {
-            parsed = { score: parseFloat(scoreMatch[1]), feedback: feedbackMatch ? feedbackMatch[1] : "" };
-          }
-        }
-        if (parsed && parsed.score !== undefined) {
-          totalScore = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
-          feedback = parsed.feedback || "";
-        }
-      } catch (aiError) {
-        console.error("AI scoring error:", aiError);
-        const correctNorm = exam.correctText.toLowerCase().replace(/\s+/g, ' ').trim();
-        const studentNorm = studentText.toLowerCase().replace(/\s+/g, ' ').trim();
-        
-        const maxLen = Math.max(correctNorm.length, studentNorm.length);
-        let matches = 0;
-        for (let i = 0; i < Math.min(correctNorm.length, studentNorm.length); i++) {
-          if (correctNorm[i] === studentNorm[i]) matches++;
-        }
-        totalScore = Math.round((matches / maxLen) * 100);
-        feedback = "AI評分暫時無法使用，使用基本比對評分";
-      }
+      const scoreResult = computeSentenceScore(exam.correctText, studentText, 100);
+      let totalScore = Math.round(scoreResult.earned);
+      let feedback = scoreResult.details.length === 0 
+        ? "完全正確！非常好！" 
+        : scoreResult.details.join("；");
 
       const submission = await storage.createTextSubmission({
         examId,
