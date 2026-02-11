@@ -927,20 +927,26 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           let sentenceFeedback = "";
           
           try {
-            const prompt = `你是英語聽寫考試的評分老師。請仔細比對學生答案和正確答案，然後評分。
+            const prompt = `你是英語聽寫考試的嚴格評分老師。請逐字比對學生答案和正確答案，嚴格按照以下扣分標準計算分數。
 
 滿分：${sentence.maxScore}分
-扣分標準：拼錯單字 -1分，漏寫/多寫單字 -1分，標點錯誤(整句共) -0.5分，大小寫錯誤(整句共) -0.5分，輕微拼寫錯誤(只差1-2個字母) -0.5分。請寬鬆評分。
+扣分標準（必須嚴格遵守，逐項計算）：
+- 每個拼錯的單字：-1分（例如 studens → students，扣1分）
+- 每個漏寫的單字：-1分（正確答案有但學生沒寫的字，每個扣1分）
+- 每個多寫的單字：-1分（學生寫了但正確答案沒有的字，每個扣1分）
+- 輕微拼寫錯誤（只差1-2個字母）：-0.5分
+- 標點符號錯誤（整句合計）：-0.5分
+- 大小寫錯誤（整句合計）：-0.5分
+最低0分，不會出現負分。
 
 正確答案：${sentence.correctSentence}
 學生答案：${studentSentence}
 
-請用JSON格式回覆。feedback欄位請用繁體中文，要具體指出錯誤：
-1. 列出每個拼錯的單字（寫出學生寫的→正確的）
-2. 指出漏寫或多寫的單字
-3. 指出標點或大小寫問題
-4. 如果全對，給予鼓勵
-feedback請控制在80字以內。
+請嚴格逐字比對，計算總扣分，然後用 滿分-總扣分 = 得分。
+請用JSON格式回覆。feedback欄位請用繁體中文，必須包含：
+1. 扣分明細（例如：漏寫"the" -1分、拼錯"studens"→"students" -1分）
+2. 總扣分和最終得分的計算過程
+feedback請控制在120字以內。
 
 {"score":N,"feedback":"..."}`;
 
@@ -948,8 +954,8 @@ feedback請控制在80字以內。
             const response = await poeClient.chat.completions.create({
               model: "gemini-2.5-flash",
               messages: [{ role: "user", content: prompt }],
-              max_tokens: 500,
-              temperature: 0.3,
+              max_tokens: 600,
+              temperature: 0.1,
             });
 
             let content = response.choices[0]?.message?.content || "";
@@ -1091,28 +1097,34 @@ feedback請控制在80字以內。
       let feedback = "";
 
       try {
-        const prompt = `你是英語聽寫考試的評分老師。請仔細比對學生答案和正確答案，然後評分。
+        const prompt = `你是英語聽寫考試的嚴格評分老師。請逐字比對學生答案和正確答案，嚴格按照以下扣分標準計算分數。
 
 滿分：100分
-扣分標準：拼錯單字 -1分，漏寫/多寫單字 -1分，標點錯誤(整句共) -0.5分，大小寫錯誤(整句共) -0.5分，輕微拼寫錯誤(只差1-2個字母) -0.5分。請寬鬆評分。
+扣分標準（必須嚴格遵守，逐項計算）：
+- 每個拼錯的單字：-1分（例如 studens → students，扣1分）
+- 每個漏寫的單字：-1分（正確答案有但學生沒寫的字，每個扣1分）
+- 每個多寫的單字：-1分（學生寫了但正確答案沒有的字，每個扣1分）
+- 輕微拼寫錯誤（只差1-2個字母）：-0.5分
+- 標點符號錯誤（整句合計）：-0.5分
+- 大小寫錯誤（整句合計）：-0.5分
+最低0分，不會出現負分。
 
 正確答案：${exam.correctText}
 學生答案：${studentText}
 
-請用JSON格式回覆。feedback欄位請用繁體中文，要具體指出錯誤：
-1. 列出每個拼錯的單字（寫出學生寫的→正確的）
-2. 指出漏寫或多寫的單字
-3. 指出標點或大小寫問題
-4. 如果全對，給予鼓勵
-feedback請控制在150字以內。
+請嚴格逐字比對，計算總扣分，然後用 滿分-總扣分 = 得分。
+請用JSON格式回覆。feedback欄位請用繁體中文，必須包含：
+1. 扣分明細（例如：漏寫"the" -1分、拼錯"studens"→"students" -1分）
+2. 總扣分和最終得分的計算過程
+feedback請控制在200字以內。
 
 {"score":N,"feedback":"..."}`;
 
         const response = await poeClient.chat.completions.create({
           model: "gemini-2.5-flash",
           messages: [{ role: "user", content: prompt }],
-          max_tokens: 500,
-          temperature: 0.3,
+          max_tokens: 800,
+          temperature: 0.1,
         });
 
         let content = response.choices[0]?.message?.content || "";
