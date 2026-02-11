@@ -897,16 +897,57 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       return { earned: 0, deductions: maxScore, details: ["未填寫，扣全部 " + maxScore + " 分"] };
     }
 
-    const extractWords = (s: string) => s.replace(/[.,!?;:'"()\-\[\]{}]/g, '').trim().split(/\s+/).filter(w => w.length > 0);
-    const extractPunc = (s: string) => (s.match(/[.,!?;:'"()\-\[\]{}]/g) || []).join('');
+    const normalizePunctuation = (s: string): string => {
+      return s
+        .replace(/[\u2013\u2014\u2015]/g, '-')
+        .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+        .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+        .replace(/\u2026/g, '...')
+        .replace(/\u00A0/g, ' ');
+    };
 
-    const correctWords = extractWords(correctSentence);
-    const studentWords = extractWords(studentSentence);
+    const tokenize = (s: string): string[] => {
+      const norm = normalizePunctuation(s);
+      const tokens: string[] = [];
+      const regex = /[A-Za-z]+(?:['-][A-Za-z]+)*/g;
+      let lastIdx = 0;
+      let match;
+      while ((match = regex.exec(norm)) !== null) {
+        const between = norm.slice(lastIdx, match.index);
+        for (const ch of between) {
+          if (/[.,!?;:'"()\-\[\]{}]/.test(ch)) {
+            tokens.push(ch);
+          }
+        }
+        tokens.push(match[0]);
+        lastIdx = regex.lastIndex;
+      }
+      const remaining = norm.slice(lastIdx);
+      for (const ch of remaining) {
+        if (/[.,!?;:'"()\-\[\]{}]/.test(ch)) {
+          tokens.push(ch);
+        }
+      }
+      return tokens;
+    };
+
+    const isPunc = (token: string): boolean => /^[.,!?;:'"()\-\[\]{}]$/.test(token);
+
+    const allCorrectTokens = tokenize(correctSentence);
+    const allStudentTokens = tokenize(studentSentence);
+
+    const correctWords = allCorrectTokens.filter(t => !isPunc(t));
+    const studentWords = allStudentTokens.filter(t => !isPunc(t));
     const correctWordsLower = correctWords.map(w => w.toLowerCase());
     const studentWordsLower = studentWords.map(w => w.toLowerCase());
 
+    const correctPuncTokens = allCorrectTokens.filter(t => isPunc(t));
+    const studentPuncTokens = allStudentTokens.filter(t => isPunc(t));
+
     const levenshtein = (a: string, b: string): number => {
       const m = a.length, n = b.length;
+      if (m === 0) return n;
+      if (n === 0) return m;
       const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
       for (let i = 0; i <= m; i++) dp[i][0] = i;
       for (let j = 0; j <= n; j++) dp[0][j] = j;
@@ -922,7 +963,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       return dp[m][n];
     };
 
-    const lcsLength = (a: string[], b: string[]): number[][] => {
+    const lcsDP = (a: string[], b: string[]): number[][] => {
       const m = a.length, n = b.length;
       const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
       for (let i = 1; i <= m; i++) {
@@ -937,7 +978,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       return dp;
     };
 
-    const dp = lcsLength(correctWordsLower, studentWordsLower);
+    const dp = lcsDP(correctWordsLower, studentWordsLower);
     const matched: { ci: number; si: number }[] = [];
     let i = correctWordsLower.length, j = studentWordsLower.length;
     while (i > 0 && j > 0) {
@@ -954,22 +995,26 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     const matchedCorrectIdx = new Set(matched.map(m => m.ci));
     const matchedStudentIdx = new Set(matched.map(m => m.si));
 
+    const unmatchedCorrect = correctWordsLower.map((_, idx) => idx).filter(idx => !matchedCorrectIdx.has(idx));
+    const unmatchedStudent = studentWordsLower.map((_, idx) => idx).filter(idx => !matchedStudentIdx.has(idx));
+
     const typos: { student: string; correct: string; dist: number }[] = [];
     const typoPairedCorrect = new Set<number>();
     const typoPairedStudent = new Set<number>();
 
-    const candidates: { cidx: number; sidx: number; dist: number }[] = [];
-    for (let cidx = 0; cidx < correctWords.length; cidx++) {
-      if (matchedCorrectIdx.has(cidx)) continue;
-      for (let sidx = 0; sidx < studentWords.length; sidx++) {
-        if (matchedStudentIdx.has(sidx)) continue;
+    const maxTypoDist = (word: string) => word.length <= 3 ? 1 : 2;
+
+    const candidates: { cidx: number; sidx: number; dist: number; posDiff: number }[] = [];
+    for (const cidx of unmatchedCorrect) {
+      for (const sidx of unmatchedStudent) {
         const dist = levenshtein(correctWordsLower[cidx], studentWordsLower[sidx]);
-        if (dist > 0 && dist <= 2) {
-          candidates.push({ cidx, sidx, dist });
+        const threshold = maxTypoDist(correctWords[cidx]);
+        if (dist > 0 && dist <= threshold) {
+          candidates.push({ cidx, sidx, dist, posDiff: Math.abs(cidx - sidx) });
         }
       }
     }
-    candidates.sort((a, b) => a.dist - b.dist);
+    candidates.sort((a, b) => a.dist - b.dist || a.posDiff - b.posDiff);
     for (const c of candidates) {
       if (typoPairedCorrect.has(c.cidx) || typoPairedStudent.has(c.sidx)) continue;
       typos.push({ student: studentWords[c.sidx], correct: correctWords[c.cidx], dist: c.dist });
@@ -978,15 +1023,15 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
 
     const missingWords: string[] = [];
-    for (let idx = 0; idx < correctWords.length; idx++) {
-      if (!matchedCorrectIdx.has(idx) && !typoPairedCorrect.has(idx)) {
+    for (const idx of unmatchedCorrect) {
+      if (!typoPairedCorrect.has(idx)) {
         missingWords.push(correctWords[idx]);
       }
     }
 
     const extraWords: string[] = [];
-    for (let idx = 0; idx < studentWords.length; idx++) {
-      if (!matchedStudentIdx.has(idx) && !typoPairedStudent.has(idx)) {
+    for (const idx of unmatchedStudent) {
+      if (!typoPairedStudent.has(idx)) {
         extraWords.push(studentWords[idx]);
       }
     }
@@ -999,9 +1044,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       }
     }
 
-    const correctPunc = extractPunc(correctSentence);
-    const studentPunc = extractPunc(studentSentence);
-    const hasPuncError = correctPunc !== studentPunc;
+    const correctPuncStr = correctPuncTokens.join('');
+    const studentPuncStr = studentPuncTokens.join('');
+    const hasPuncError = correctPuncStr !== studentPuncStr;
 
     let totalDeductions = 0;
     const details: string[] = [];
@@ -1061,20 +1106,25 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         let maxScore = 0;
         const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
         
+        const scoringResults: { sentence: typeof sentences[0]; studentSentence: string; scoreResult: ReturnType<typeof computeSentenceScore> }[] = [];
         for (const sentence of sentences) {
           const answer = sentenceAnswers.find((a: { sentenceId: number; studentSentence: string }) => a.sentenceId === sentence.id);
           const studentSentence = answer?.studentSentence || "";
           maxScore += sentence.maxScore;
-          
           const scoreResult = computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
-          let earnedScore = scoreResult.earned;
-          let sentenceFeedback = "";
+          totalScore += scoreResult.earned;
+          scoringResults.push({ sentence, studentSentence, scoreResult });
+        }
 
+        const aiTimeout = (promise: Promise<any>, ms: number) =>
+          Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("AI timeout")), ms))]);
+
+        const feedbackPromises = scoringResults.map(async ({ sentence, studentSentence, scoreResult }) => {
+          let sentenceFeedback = "";
           if (scoreResult.details.length === 0) {
             sentenceFeedback = "完全正確！非常好！";
           } else {
             sentenceFeedback = scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
-            
             try {
               const prompt = `你是英語聽寫考試的老師。以下是一位學生的聽寫結果，請根據扣分明細，用繁體中文給出簡短、有建設性的學習建議（不要重複扣分明細，只給建議）。控制在40字以內。
 
@@ -1084,12 +1134,12 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
 只回覆建議文字，不要JSON。`;
 
-              const response = await poeClient.chat.completions.create({
+              const response: any = await aiTimeout(poeClient.chat.completions.create({
                 model: "gemini-2.5-flash",
                 messages: [{ role: "user", content: prompt }],
                 max_tokens: 200,
                 temperature: 0.3,
-              });
+              }), 10000);
               const aiAdvice = (response.choices[0]?.message?.content || "").trim();
               if (aiAdvice && aiAdvice.length < 100) {
                 sentenceFeedback += `。建議：${aiAdvice}`;
@@ -1098,14 +1148,17 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
               console.error("AI feedback error:", aiErr?.message || aiErr);
             }
           }
-          
-          totalScore += earnedScore;
-          sentenceResults.push({
+          return {
             sentenceId: sentence.id,
-            earned: earnedScore,
+            earned: scoreResult.earned,
             max: sentence.maxScore,
             feedback: sentenceFeedback,
-          });
+          };
+        });
+
+        const resolvedResults = await Promise.all(feedbackPromises);
+        for (const r of resolvedResults) {
+          sentenceResults.push(r);
         }
         
         // Combine all student sentences for storage
