@@ -927,54 +927,70 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           let sentenceFeedback = "";
           
           try {
-            // AI scoring for each sentence
-            const prompt = `Compare the student's sentence with the correct sentence and give a score out of ${sentence.maxScore}.
+            const prompt = `Grade this dictation leniently. Full=${sentence.maxScore}pts. Deduct: misspelled word -1pt, missing/extra word -1pt, punctuation error -0.5pt, capitalization -0.5pt total. Minor typo(1-2 letters off) -0.5pt only. Be generous.
 
-CORRECT SENTENCE:
-${sentence.correctSentence}
+Correct: ${sentence.correctSentence}
+Student: ${studentSentence}
 
-STUDENT'S SENTENCE:
-${studentSentence}
+Reply ONLY with JSON. Feedback in Traditional Chinese, max 20 chars, be encouraging but mention specific wrong words if any:
+{"score":N,"feedback":"..."}`;
 
-Grading criteria (proportional to ${sentence.maxScore} points):
-- Spelling accuracy (50%): Deduct points for each spelling mistake
-- Punctuation accuracy (25%): Deduct points for punctuation errors
-- Capitalization accuracy (15%): Deduct points for capitalization errors  
-- Word omission/addition (10%): Deduct points for missing or extra words
-
-Respond in this exact JSON format only:
-{"score": <number 0-${sentence.maxScore}>, "feedback": "<brief analysis in Chinese, max 30 chars, point out specific errors like spelling/punctuation/capitalization/missing words>"}`;
 
             const response = await poeClient.chat.completions.create({
               model: "gemini-2.5-flash",
               messages: [{ role: "user", content: prompt }],
-              max_tokens: 200,
+              max_tokens: 500,
+              temperature: 0.3,
             });
 
-            const content = response.choices[0]?.message?.content || "";
+            let content = response.choices[0]?.message?.content || "";
+            content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+            console.log("AI response for sentence:", content);
+
+            let parsed: any = null;
             const jsonMatch = content.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              earnedScore = Math.max(0, Math.min(sentence.maxScore, parsed.score || 0));
-              sentenceFeedback = parsed.feedback || "";
+              try { parsed = JSON.parse(jsonMatch[0]); } catch {}
             }
-          } catch (aiError) {
-            console.error("AI scoring error for sentence:", aiError);
-            // Fallback: character comparison
-            const correctNorm = sentence.correctSentence.toLowerCase().replace(/\s+/g, ' ').trim();
-            const studentNorm = studentSentence.toLowerCase().replace(/\s+/g, ' ').trim();
+            if (!parsed) {
+              const scoreMatch = content.match(/"score"\s*:\s*([\d.]+)/);
+              const feedbackMatch = content.match(/"feedback"\s*:\s*"([^"]*)/);
+              if (scoreMatch) {
+                parsed = {
+                  score: parseFloat(scoreMatch[1]),
+                  feedback: feedbackMatch ? feedbackMatch[1] : "",
+                };
+              }
+            }
+            if (parsed && parsed.score !== undefined) {
+              earnedScore = Math.max(0, Math.min(sentence.maxScore, Math.round(Number(parsed.score) || 0)));
+              sentenceFeedback = parsed.feedback || "";
+            } else {
+              console.error("Could not parse AI response:", content);
+            }
+          } catch (aiError: any) {
+            console.error("AI scoring error for sentence:", aiError?.message || aiError);
+            const correctWords = sentence.correctSentence.toLowerCase().replace(/[^\w\s']/g, '').trim().split(/\s+/);
+            const studentWords = studentSentence.toLowerCase().replace(/[^\w\s']/g, '').trim().split(/\s+/);
             
-            if (studentNorm.length === 0) {
+            if (!studentSentence.trim()) {
               earnedScore = 0;
               sentenceFeedback = "未填寫";
             } else {
-              const maxLen = Math.max(correctNorm.length, studentNorm.length);
-              let matches = 0;
-              for (let i = 0; i < Math.min(correctNorm.length, studentNorm.length); i++) {
-                if (correctNorm[i] === studentNorm[i]) matches++;
+              let deductions = 0;
+              const maxWords = Math.max(correctWords.length, studentWords.length);
+              for (let i = 0; i < maxWords; i++) {
+                if (!correctWords[i] || !studentWords[i]) {
+                  deductions += 1;
+                } else if (correctWords[i] !== studentWords[i]) {
+                  deductions += 1;
+                }
               }
-              earnedScore = Math.round((matches / maxLen) * sentence.maxScore);
-              sentenceFeedback = "基本比對評分";
+              const correctPunc = (sentence.correctSentence.match(/[.,!?;:'"()-]/g) || []).join('');
+              const studentPunc = (studentSentence.match(/[.,!?;:'"()-]/g) || []).join('');
+              if (correctPunc !== studentPunc) deductions += 0.5;
+              earnedScore = Math.max(0, Math.round(sentence.maxScore - deductions));
+              sentenceFeedback = deductions === 0 ? "完全正確！" : "基本比對評分，請老師覆核";
             }
           }
           
@@ -1066,34 +1082,37 @@ Respond in this exact JSON format only:
       let feedback = "";
 
       try {
-        const prompt = `You are a strict English dictation grading assistant. Compare the student's text with the correct text and give a score out of 100.
+        const prompt = `Grade this dictation leniently. Full=100pts. Deduct: misspelled word -1pt, missing/extra word -1pt, punctuation error -0.5pt, capitalization -0.5pt total. Minor typo(1-2 letters off) -0.5pt only. Be generous.
 
-CORRECT TEXT:
-${exam.correctText}
+Correct: ${exam.correctText}
+Student: ${studentText}
 
-STUDENT'S TEXT:
-${studentText}
-
-Grading criteria:
-1. Spelling accuracy (50 points): Deduct 2 points for each spelling mistake
-2. Punctuation accuracy (25 points): Deduct 1 point for each punctuation error
-3. Capitalization accuracy (15 points): Deduct 1 point for each capitalization error  
-4. Word omission/addition (10 points): Deduct 2 points for each missing or extra word
-
-Respond in this exact JSON format only, no other text:
-{"score": <number 0-100>, "feedback": "<brief feedback in Chinese about main errors, DO NOT reveal the correct text or any part of it>"}`;
+Reply ONLY with JSON. Feedback in Traditional Chinese, max 30 chars, be encouraging but mention specific errors:
+{"score":N,"feedback":"..."}`;
 
         const response = await poeClient.chat.completions.create({
           model: "gemini-2.5-flash",
           messages: [{ role: "user", content: prompt }],
           max_tokens: 500,
+          temperature: 0.3,
         });
 
-        const content = response.choices[0]?.message?.content || "";
+        let content = response.choices[0]?.message?.content || "";
+        content = content.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+        let parsed: any = null;
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          totalScore = Math.max(0, Math.min(100, parsed.score || 0));
+          try { parsed = JSON.parse(jsonMatch[0]); } catch {}
+        }
+        if (!parsed) {
+          const scoreMatch = content.match(/"score"\s*:\s*([\d.]+)/);
+          const feedbackMatch = content.match(/"feedback"\s*:\s*"([^"]*)/);
+          if (scoreMatch) {
+            parsed = { score: parseFloat(scoreMatch[1]), feedback: feedbackMatch ? feedbackMatch[1] : "" };
+          }
+        }
+        if (parsed && parsed.score !== undefined) {
+          totalScore = Math.max(0, Math.min(100, Math.round(Number(parsed.score) || 0)));
           feedback = parsed.feedback || "";
         }
       } catch (aiError) {
