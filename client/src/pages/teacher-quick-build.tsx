@@ -96,7 +96,7 @@ export default function TeacherQuickBuild() {
   const generateMcQuestions = () => {
     if (!activePart) return;
     
-    const answers = mcAnswerString.toUpperCase().replace(/[^A-E]/g, "");
+    const answers = mcAnswerString.toUpperCase().replace(/[^A-Z]/g, "");
     const count = mcEndNum - mcStartNum + 1;
     
     if (answers.length < count) {
@@ -118,7 +118,7 @@ export default function TeacherQuickBuild() {
       const answer = answers[i];
       
       if (!options.includes(answer)) {
-        toast({ title: "無效答案", description: `第 ${questionNum} 題答案 "${answer}" 不在選項範圍內`, variant: "destructive" });
+        toast({ title: "無效答案", description: `第 ${questionNum} 題答案 "${answer}" 不在 ${mcOptions} 選項範圍內`, variant: "destructive" });
         return;
       }
       
