@@ -3,16 +3,50 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { examSubmissionSchema, createExamSchema, studentSubmissions, textSubmissions, exams } from "@shared/schema";
 import ExcelJS from "exceljs";
-import OpenAI from "openai";
 import { computeBadges, BADGE_DEFINITIONS, type SubmissionRecord } from "@shared/badges";
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 
-// Poe API client for AI scoring
-const poeClient = new OpenAI({
-  apiKey: process.env.POE_API_KEY,
-  baseURL: "https://api.poe.com/v1",
-});
+// MiniMax API helper function for AI scoring
+async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feedback?: string }> {
+  const apiKey = process.env.MINIMAX_API_KEY;
+  if (!apiKey) {
+    console.error("MINIMAX_API_KEY not configured");
+    return { isCorrect: false };
+  }
+
+  try {
+    const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'abab6.5s-chat',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 300,
+      }),
+    });
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    
+    // Extract JSON from response
+    const jsonMatch = content.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        isCorrect: parsed.isCorrect ?? false,
+        feedback: parsed.feedback
+      };
+    }
+    return { isCorrect: false };
+  } catch (error) {
+    console.error("MiniMax AI API error:", error);
+    return { isCorrect: false };
+  }
+}
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
@@ -533,19 +567,9 @@ ${answer.studentMeaning}
 Respond in this exact JSON format only:
 {"isCorrect": <boolean>, "feedback": "<brief feedback in Chinese>"}`;
 
-                  const response = await poeClient.chat.completions.create({
-                    model: "gemini-2.5-flash",
-                    messages: [{ role: "user", content: prompt }],
-                    max_tokens: 100,
-                  });
-
-                  const content = response.choices[0]?.message?.content || "";
-                  const jsonMatch = content.match(/\{[\s\S]*\}/);
-                  if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    if (parsed.isCorrect) {
-                      meaningCorrect = true;
-                    }
+                  const aiResult = await callMiniMaxAI(prompt);
+                  if (aiResult.isCorrect) {
+                    meaningCorrect = true;
                   }
                 } catch (aiError) {
                   console.error("AI vocab meaning scoring error (re-calculate):", aiError);
@@ -638,20 +662,10 @@ STUDENT'S ANSWER: ${answer.studentMeaning}
 
 Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
-                  const response = await poeClient.chat.completions.create({
-                    model: "gemini-2.5-flash",
-                    messages: [{ role: "user", content: prompt }],
-                    max_tokens: 300,
-                  });
-
-                  const content = response.choices[0]?.message?.content || "";
-                  console.log(`Re-score AI check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => ${content}`);
-                  const jsonMatch = content.match(/\{[\s\S]*?\}/);
-                  if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    if (parsed.isCorrect === true) {
-                      meaningCorrect = true;
-                    }
+                  const aiResult = await callMiniMaxAI(prompt);
+                  console.log(`Re-score AI check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => isCorrect: ${aiResult.isCorrect}`);
+                  if (aiResult.isCorrect) {
+                    meaningCorrect = true;
                   }
                 } catch (aiError) {
                   console.error("AI re-score error:", aiError);
@@ -787,20 +801,10 @@ STUDENT'S ANSWER: ${answer.studentMeaning}
 
 Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
-              const response = await poeClient.chat.completions.create({
-                model: "gemini-2.5-flash",
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: 300,
-              });
-
-              const content = response.choices[0]?.message?.content || "";
-              console.log(`AI meaning check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => ${content}`);
-              const jsonMatch = content.match(/\{[\s\S]*?\}/);
-              if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                if (parsed.isCorrect === true) {
-                  meaningCorrect = true;
-                }
+              const aiResult = await callMiniMaxAI(prompt);
+              console.log(`AI meaning check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => isCorrect: ${aiResult.isCorrect}`);
+              if (aiResult.isCorrect) {
+                meaningCorrect = true;
               }
             } catch (aiError) {
               console.error("AI vocab meaning scoring error:", aiError);
@@ -1184,9 +1188,6 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           scoringResults.push({ sentence, studentSentence, scoreResult });
         }
 
-        const aiTimeout = (promise: Promise<any>, ms: number) =>
-          Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("AI timeout")), ms))]);
-
         const feedbackPromises = scoringResults.map(async ({ sentence, studentSentence, scoreResult }) => {
           let sentenceFeedback = "";
           if (scoreResult.details.length === 0) {
@@ -1202,15 +1203,36 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
 只回覆建議文字，不要JSON。`;
 
-              const response: any = await aiTimeout(poeClient.chat.completions.create({
-                model: "gemini-2.5-flash",
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: 200,
-                temperature: 0.3,
-              }), 10000);
-              const aiAdvice = (response.choices[0]?.message?.content || "").trim();
-              if (aiAdvice && aiAdvice.length < 100) {
-                sentenceFeedback += `。建議：${aiAdvice}`;
+              const apiKey = process.env.MINIMAX_API_KEY;
+              if (apiKey) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                
+                try {
+                  const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${apiKey}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'abab6.5s-chat',
+                      messages: [{ role: 'user', content: prompt }],
+                      max_tokens: 200,
+                      temperature: 0.3,
+                    }),
+                    signal: controller.signal,
+                  });
+                  clearTimeout(timeoutId);
+                  
+                  const data = await response.json();
+                  const aiAdvice = (data.choices?.[0]?.message?.content || "").trim();
+                  if (aiAdvice && aiAdvice.length < 100) {
+                    sentenceFeedback += `。建議：${aiAdvice}`;
+                  }
+                } catch (fetchError: any) {
+                  console.error("AI feedback fetch error:", fetchError?.message || fetchError);
+                }
               }
             } catch (aiErr: any) {
               console.error("AI feedback error:", aiErr?.message || aiErr);

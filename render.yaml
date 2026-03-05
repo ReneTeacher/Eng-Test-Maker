@@ -1,0 +1,18 @@
+# Render 部署配置
+
+services:
+  - type: web
+    name: eng-test-maker
+    env: node
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: postgresql://postgres:zrqk8CLbv9zVs83t@db.xhfgkbedefeqhevjksud.supabase.co:5432/postgres
+      - key: MINIMAX_API_KEY
+        value: api-28QryqDJ_auda3XLJ2_iQcZ9MuucnBWpN2ZWGJ_kYtv_Plg4C6Pkzj9I_vw7x_s40tUPYIbpEvpDoakkqCm03SgfYFJZslFVwlD35JD2l_06lIXv1FS2Vfs
+      - key: ADMIN_PASSWORD
+        value: YOUR_PASSWORD_HERE

@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -6,6 +7,12 @@ import { seedDatabase } from "./seed";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Enable CORS for all origins
+app.use(cors({
+  origin: true,
+  credentials: true,
+}));
 
 declare module "http" {
   interface IncomingMessage {
