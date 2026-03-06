@@ -7,32 +7,38 @@ if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL environment variable is not set!");
 }
 
-// Parse connection string and force IPv4
-function getPoolConfig() {
-  const connectionString = process.env.DATABASE_URL;
-  
-  // Extract host from connection string
-  let host = '';
-  const match = connectionString?.match(/@([^:]+):/);
-  if (match) {
-    host = match[1];
+// Parse connection string to extract parameters
+function parseDatabaseUrl(url: string) {
+  // Format: postgresql://user:password@host:port/database
+  const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
+  if (!match) {
+    throw new Error("Invalid DATABASE_URL format");
   }
-  
-  console.log(`Connecting to database host: ${host}`);
-  
   return {
-    connectionString: process.env.DATABASE_URL,
-    max: 1, // Limit connections for serverless
-    ssl: {
-      rejectUnauthorized: false,
-    },
-    // Force IPv4
-    family: 4,
+    user: match[1],
+    password: match[2],
+    host: match[3],
+    port: parseInt(match[4], 10),
+    database: match[5],
   };
 }
 
-// Use pg Pool for PostgreSQL connection
-const pool = new pg.Pool(getPoolConfig());
+// Create pool with explicit parameters
+const dbConfig = parseDatabaseUrl(process.env.DATABASE_URL!);
+console.log(`Connecting to database: ${dbConfig.host}:${dbConfig.port}`);
+
+const pool = new pg.Pool({
+  user: dbConfig.user,
+  password: dbConfig.password,
+  host: dbConfig.host,
+  port: dbConfig.port,
+  database: dbConfig.database,
+  max: 1,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+  family: 4, // Force IPv4
+});
 
 pool.on('error', (err) => {
   console.error('Unexpected database pool error:', err);
