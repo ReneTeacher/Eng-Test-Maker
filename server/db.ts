@@ -9,8 +9,8 @@ if (!process.env.DATABASE_URL) {
 
 // Parse connection string to extract parameters
 function parseDatabaseUrl(url: string) {
-  // Format: postgresql://user:password@host:port/database
-  const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
+  // Format: postgresql://user:password@host:port/database[?sslmode=disable]
+  const match = url.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/([^?]+)/);
   if (!match) {
     throw new Error("Invalid DATABASE_URL format");
   }
@@ -20,6 +20,7 @@ function parseDatabaseUrl(url: string) {
     host: match[3],
     port: parseInt(match[4], 10),
     database: match[5],
+    sslDisabled: url.includes('sslmode=disable'),
   };
 }
 
@@ -34,9 +35,7 @@ const pool = new pg.Pool({
   port: dbConfig.port,
   database: dbConfig.database,
   max: 1,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: dbConfig.sslDisabled ? false : { rejectUnauthorized: false },
   family: 4, // Force IPv4
 });
 
