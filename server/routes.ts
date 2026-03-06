@@ -263,10 +263,13 @@ export async function registerRoutes(
   // Get all exams
   app.get("/api/exams", async (req, res) => {
     try {
+      console.log("Fetching exams from database...");
       const exams = await storage.getExams();
+      console.log(`Found ${exams.length} exams`);
       res.json(exams);
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch exams" });
+      console.error("Error fetching exams:", error);
+      res.status(500).json({ message: "Failed to fetch exams", error: error.message });
     }
   });
 
