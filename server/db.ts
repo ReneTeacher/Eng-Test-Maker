@@ -7,10 +7,13 @@ if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL environment variable is not set!");
 }
 
-// Use pg Pool for PostgreSQL connection
+// Use pg Pool for PostgreSQL connection with SSL support
 const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   max: 1, // Limit connections for serverless
+  ssl: {
+    rejectUnauthorized: false, // Allow self-signed certificates
+  },
 });
 
 pool.on('error', (err) => {
