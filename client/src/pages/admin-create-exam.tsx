@@ -415,6 +415,24 @@ export default function AdminCreateExam() {
           )}
           
           {(examType === "text" || examType === "passage") && correctText.trim() && (() => {
+            if (examType === "passage") {
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Eye className="w-5 h-5" />
+                      課文預覽
+                    </CardTitle>
+                    <CardDescription>
+                      儲存時 AI 會自動分句（支援電郵格式），分句結果可在編輯頁查看
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm whitespace-pre-wrap bg-muted/50 rounded-md p-3">{correctText.trim()}</p>
+                  </CardContent>
+                </Card>
+              );
+            }
             const sentences = correctText.trim()
               .split(/(?<=[.!?。！？])\s*/)
               .map(s => s.trim())
@@ -424,12 +442,10 @@ export default function AdminCreateExam() {
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Eye className="w-5 h-5" />
-                    {examType === "passage" ? `課文預覽 (共 ${sentences.length} 句，逐句評分)` : `句子預覽 (${sentences.length} 句)`}
+                    {`句子預覽 (${sentences.length} 句)`}
                   </CardTitle>
                   <CardDescription>
-                    {examType === "passage"
-                      ? "以下為近似預覽，實際分句由 AI 在儲存時決定（支援電郵格式）"
-                      : "按以下順序讀出每句，學生將逐句輸入"}
+                    按以下順序讀出每句，學生將逐句輸入
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
