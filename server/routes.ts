@@ -7,6 +7,38 @@ import { computeBadges, BADGE_DEFINITIONS, type SubmissionRecord } from "@shared
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 
+// AI sentence splitting for passage type
+async function aiSplitPassage(text: string, apiKey: string): Promise<string[]> {
+  const prompt = `請將以下文章按邏輯分割成評分單元，每個單元獨立一行輸出。
+規則：
+- 電郵：From/To/Subject/Date 等標題行各算一個單元；稱謂（Dear...）一個單元；每個正文段落一個單元；結束語（Yours sincerely 等）一個單元；署名一個單元
+- 一般文章：每個完整句子或段落一個單元
+只輸出各單元文字，一行一個，不加任何說明或編號。
+
+文章：
+${text}`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'abab6.5s-chat', messages: [{ role: 'user', content: prompt }], max_tokens: 2000 }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content || '';
+    const lines = content.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+    if (lines.length > 0) return lines;
+  } catch (error) {
+    console.error("aiSplitPassage failed, using fallback:", error);
+  }
+  // Fallback: split by newlines
+  return text.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+}
+
 // MiniMax API helper function for AI scoring
 async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feedback?: string }> {
   const apiKey = process.env.MINIMAX_API_KEY;
@@ -315,11 +347,16 @@ export async function registerRoutes(
           return;
         }
 
-        // Split text into sentences using common punctuation
-        const sentences = correctText.trim()
-          .split(/(?<=[.!?。！？])\s*/)
-          .map((s: string) => s.trim())
-          .filter((s: string) => s.length > 0);
+        // Split text into sentences
+        let sentences: string[];
+        if (type === "passage" && process.env.MINIMAX_API_KEY) {
+          sentences = await aiSplitPassage(correctText.trim(), process.env.MINIMAX_API_KEY);
+        } else {
+          sentences = correctText.trim()
+            .split(/(?<=[.!?。！？])\s*/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 0);
+        }
 
         if (sentences.length === 0) {
           res.status(400).json({ message: "Could not parse any sentences from the text" });
@@ -457,10 +494,15 @@ export async function registerRoutes(
         });
 
         // Split text into sentences and redistribute 100 points
-        const sentences = correctText.trim()
-          .split(/(?<=[.!?。！？])\s*/)
-          .map((s: string) => s.trim())
-          .filter((s: string) => s.length > 0);
+        let sentences: string[];
+        if (currentExam.examType === "passage" && process.env.MINIMAX_API_KEY) {
+          sentences = await aiSplitPassage(correctText.trim(), process.env.MINIMAX_API_KEY);
+        } else {
+          sentences = correctText.trim()
+            .split(/(?<=[.!?。！？])\s*/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 0);
+        }
 
         if (sentences.length > 0) {
           await storage.deleteTextSentencesByExamId(examId);
@@ -1391,9 +1433,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       // For passage exams, grade sentence-by-sentence using stored sentences
       if (exam.examType === "passage" && sentences.length > 0) {
-        // Split student text into sentences
-        const studentSentences = studentText.trim()
-          .split(/(?<=[.!?。！？])\s*/)
+        // Split student text by newlines (matches AI-split segments)
+        const studentSentences = studentText
+          .split(/\r?\n/)
           .map((s: string) => s.trim())
           .filter((s: string) => s.length > 0);
 

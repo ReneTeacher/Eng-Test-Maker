@@ -428,7 +428,7 @@ export default function AdminCreateExam() {
                   </CardTitle>
                   <CardDescription>
                     {examType === "passage"
-                      ? "學生須憑記憶默寫全文，不會看到任何提示"
+                      ? "以下為近似預覽，實際分句由 AI 在儲存時決定（支援電郵格式）"
                       : "按以下順序讀出每句，學生將逐句輸入"}
                   </CardDescription>
                 </CardHeader>

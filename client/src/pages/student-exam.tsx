@@ -474,9 +474,18 @@ export default function StudentExam() {
                       </p>
                     )}
                     {ocrText && (
-                      <div className="p-3 bg-muted rounded-md text-sm space-y-1">
-                        <p className="font-medium">系統識別內容：</p>
-                        <p className="whitespace-pre-wrap text-muted-foreground">{ocrText}</p>
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">系統識別內容（如有錯誤或格式問題，可直接修改）：</p>
+                        <Textarea
+                          value={textAnswer}
+                          onChange={(e) => setTextAnswer(e.target.value)}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          className="min-h-[150px] text-sm font-mono"
+                        />
+                        <p className="text-xs text-muted-foreground">提示：每行對應一個評分單元（電郵每行一個部分）</p>
                       </div>
                     )}
                   </div>
