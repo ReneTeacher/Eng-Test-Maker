@@ -82,6 +82,15 @@ async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feed
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
+// Temporary in-memory image store for Poe OCR (auto-cleaned after 10 minutes)
+const tempImages = new Map<string, { data: Buffer; createdAt: number }>();
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [id, img] of tempImages.entries()) {
+    if (img.createdAt < cutoff) tempImages.delete(id);
+  }
+}, 60000);
+
 // Common Simplified-to-Traditional Chinese character mapping
 const simplifiedToTraditional: Record<string, string> = {
   '复': '復', '发': '發', '历': '歷', '雇': '僱', '肤': '膚', '评': '評',
@@ -193,7 +202,15 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
+  // Serve temporary images for Poe OCR
+  app.get("/api/temp-image/:id", (req, res) => {
+    const img = tempImages.get(req.params.id);
+    if (!img) { res.status(404).end(); return; }
+    res.setHeader("Content-Type", "image/jpeg");
+    res.send(img.data);
+  });
+
   // Helper: get all submissions for a student (both vocab and text)
   async function getStudentSubmissions(studentName: string, studentNumber: number, originalClass: string): Promise<SubmissionRecord[]> {
     const vocabSubs = await db.select({
@@ -1214,21 +1231,12 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
 
     try {
-      // Step 1: upload image to tmpfiles.org to get a real URL
+      // Step 1: store image in memory and expose via our own server
       const imageBuffer = Buffer.from(imageBase64, "base64");
-      const uploadForm = new FormData();
-      uploadForm.append("file", new Blob([imageBuffer], { type: "image/jpeg" }), "handwriting.jpg");
-      const uploadRes = await fetch("https://tmpfiles.org/api/v1/upload", {
-        method: "POST",
-        body: uploadForm,
-      });
-      if (!uploadRes.ok) throw new Error("Image upload failed");
-      const uploadData = await uploadRes.json();
-      // tmpfiles.org view URL → direct download URL
-      const imageUrl = (uploadData?.data?.url as string).replace(
-        "https://tmpfiles.org/",
-        "https://tmpfiles.org/dl/"
-      );
+      const imgId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      tempImages.set(imgId, { data: imageBuffer, createdAt: Date.now() });
+      const baseUrl = process.env.BASE_URL || "https://eng-test-maker.zeabur.app";
+      const imageUrl = `${baseUrl}/api/temp-image/${imgId}`;
 
       // Step 2: query Poe with the real image URL
       const controller = new AbortController();
@@ -1292,6 +1300,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         } catch {}
       }
 
+      tempImages.delete(imgId);
       recognizedText = recognizedText.trim();
       if (!recognizedText) {
         res.status(400).json({ message: "無法辨識圖片內容，請確保圖片清晰" });
