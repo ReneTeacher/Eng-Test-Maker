@@ -1215,7 +1215,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       const response = await fetch("https://api.minimax.io/v1/chat/completions", {
         method: "POST",
@@ -1238,7 +1238,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
               },
             ],
           }],
-          max_tokens: 1000,
+          max_tokens: 2000,
         }),
         signal: controller.signal,
       });
@@ -1246,9 +1246,17 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       clearTimeout(timeoutId);
 
       const data = await response.json();
+
+      if (!response.ok) {
+        console.error("MiniMax VL API error:", JSON.stringify(data));
+        res.status(400).json({ message: `OCR API 錯誤: ${data?.error?.message || data?.message || response.status}` });
+        return;
+      }
+
       const recognizedText = (data.choices?.[0]?.message?.content || "").trim();
 
       if (!recognizedText) {
+        console.error("MiniMax VL empty response:", JSON.stringify(data));
         res.status(400).json({ message: "無法辨識圖片內容，請確保圖片清晰" });
         return;
       }
@@ -1256,7 +1264,11 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       res.json({ recognizedText });
     } catch (err: any) {
       console.error("OCR error:", err?.message || err);
-      res.status(400).json({ message: "圖片辨識失敗，請重試" });
+      if (err?.name === "AbortError") {
+        res.status(400).json({ message: "圖片辨識逾時，請重試" });
+      } else {
+        res.status(400).json({ message: "圖片辨識失敗，請重試" });
+      }
     }
   });
 
