@@ -1217,7 +1217,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
 
-      const response = await fetch("https://api.minimax.io/v1/chat/completions", {
+      const response = await fetch("https://api.minimax.chat/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
