@@ -1201,11 +1201,14 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
   // OCR: Extract text from handwritten image using MiniMax VL
   app.post("/api/ocr-passage", async (req, res) => {
-    const apiKey = process.env.MINIMAX_API_KEY;
+    const apiKey = process.env.MINIMAX_IO_API_KEY || process.env.MINIMAX_API_KEY;
     if (!apiKey) {
       res.status(400).json({ message: "圖片評分功能未啟用" });
       return;
     }
+    const endpoint = process.env.MINIMAX_IO_API_KEY
+      ? "https://api.minimax.io/v1/chat/completions"
+      : "https://api.minimax.chat/v1/chat/completions";
 
     const { imageBase64 } = req.body;
     if (!imageBase64 || typeof imageBase64 !== "string") {
@@ -1217,7 +1220,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
 
-      const response = await fetch("https://api.minimax.chat/v1/chat/completions", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
