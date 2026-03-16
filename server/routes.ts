@@ -1231,42 +1231,27 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
 
     try {
-      // Step 1: upload image to 0x0.st for a publicly accessible URL
-      const imageBuffer = Buffer.from(imageBase64, "base64");
-      const uploadForm = new FormData();
-      uploadForm.append("file", new Blob([imageBuffer], { type: "image/jpeg" }), "handwriting.jpg");
-      const uploadRes = await fetch("https://0x0.st", { method: "POST", body: uploadForm });
-      if (!uploadRes.ok) throw new Error("Image upload failed");
-      const imageUrl = (await uploadRes.text()).trim();
-
-      // Step 2: query Poe with the real image URL
+      const botName = process.env.POE_BOT_NAME || "Claude-3.7-Sonnet";
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
-      const botName = process.env.POE_BOT_NAME || "Gemini-Flash";
-      const msgId = `m${Date.now()}`;
 
-      const response = await fetch(`https://api.poe.com/bot/${botName}`, {
+      // Poe OpenAI-compatible API with base64 image
+      const response = await fetch("https://api.poe.com/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          Accept: "text/event-stream",
         },
         body: JSON.stringify({
-          version: "1.0",
-          type: "query",
-          query: [{
+          model: botName,
+          messages: [{
             role: "user",
-            content: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。",
-            content_type: "text/plain",
-            timestamp: Date.now() * 1000,
-            message_id: msgId,
-            feedback: [],
-            attachments: [{ url: imageUrl, content_type: "image/jpeg", name: "handwriting.jpg" }],
+            content: [
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+              { type: "text", text: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。" },
+            ],
           }],
-          user_id: "user",
-          conversation_id: msgId,
-          message_id: msgId,
+          stream: false,
         }),
         signal: controller.signal,
       });
@@ -1275,31 +1260,14 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       if (!response.ok) {
         const errText = await response.text();
-        console.error("Poe API error:", errText);
-        res.status(400).json({ message: `OCR API 錯誤: ${response.status}` });
+        console.error("Poe API error:", response.status, errText);
+        res.status(400).json({ message: `OCR API 錯誤: ${errText}` });
         return;
       }
 
-      // Parse SSE stream (track event type to catch error events)
-      const rawText = await response.text();
-      let recognizedText = "";
-      let currentEvent = "";
-      for (const line of rawText.split("\n")) {
-        if (line.startsWith("event: ")) {
-          currentEvent = line.slice(7).trim();
-          continue;
-        }
-        if (!line.startsWith("data: ")) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (currentEvent === "error" || data.allow_retry !== undefined) {
-            console.error("Poe error event:", data.text);
-            res.status(400).json({ message: `OCR API 錯誤: ${data.text || "未知錯誤"}` });
-            return;
-          }
-          if (data.text) recognizedText += data.text;
-        } catch {}
-      }
+      const data = await response.json();
+      console.log("Poe response:", JSON.stringify(data).slice(0, 200));
+      let recognizedText = (data.choices?.[0]?.message?.content as string) || "";
 
       recognizedText = recognizedText.trim();
       if (!recognizedText) {
