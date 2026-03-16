@@ -1231,12 +1231,13 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
 
     try {
-      // Step 1: store image in memory and expose via our own server
+      // Step 1: upload image to 0x0.st for a publicly accessible URL
       const imageBuffer = Buffer.from(imageBase64, "base64");
-      const imgId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      tempImages.set(imgId, { data: imageBuffer, createdAt: Date.now() });
-      const baseUrl = process.env.BASE_URL || "https://eng-test-maker.zeabur.app";
-      const imageUrl = `${baseUrl}/api/temp-image/${imgId}`;
+      const uploadForm = new FormData();
+      uploadForm.append("file", new Blob([imageBuffer], { type: "image/jpeg" }), "handwriting.jpg");
+      const uploadRes = await fetch("https://0x0.st", { method: "POST", body: uploadForm });
+      if (!uploadRes.ok) throw new Error("Image upload failed");
+      const imageUrl = (await uploadRes.text()).trim();
 
       // Step 2: query Poe with the real image URL
       const controller = new AbortController();
@@ -1256,12 +1257,12 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           type: "query",
           query: [{
             role: "user",
-            content: `![handwriting](${imageUrl})\n請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。`,
-            content_type: "text/markdown",
+            content: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。",
+            content_type: "text/plain",
             timestamp: Date.now() * 1000,
             message_id: msgId,
             feedback: [],
-            attachments: [],
+            attachments: [{ url: imageUrl, content_type: "image/jpeg", name: "handwriting.jpg" }],
           }],
           user_id: "user",
           conversation_id: msgId,
@@ -1300,7 +1301,6 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         } catch {}
       }
 
-      tempImages.delete(imgId);
       recognizedText = recognizedText.trim();
       if (!recognizedText) {
         res.status(400).json({ message: "無法辨識圖片內容，請確保圖片清晰" });
