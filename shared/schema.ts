@@ -10,6 +10,7 @@ export const exams = pgTable("exams", {
   isActive: boolean("is_active").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   correctText: text("correct_text"),
+  submissionMode: text("submission_mode").notNull().default("text"),
 });
 
 export const questions = pgTable("questions", {

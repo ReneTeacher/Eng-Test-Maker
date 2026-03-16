@@ -298,19 +298,20 @@ export async function registerRoutes(
   // Create exam
   app.post("/api/exams", async (req, res) => {
     try {
-      const { title, vocabularies, correctText, isActive, examType } = req.body;
-      
+      const { title, vocabularies, correctText, isActive, examType, submissionMode } = req.body;
+
       if (!title || typeof title !== "string" || !title.trim()) {
         res.status(400).json({ message: "Title is required" });
         return;
       }
 
-      const type = examType === "text" ? "text" : "vocab";
+      const type = (examType === "text" || examType === "passage") ? examType : "vocab";
+      const mode = submissionMode === "image" ? "image" : "text";
 
-      if (type === "text") {
-        // Text Dictation exam
+      if (type === "text" || type === "passage") {
+        // Text Dictation / Passage Memorization exam
         if (!correctText || typeof correctText !== "string" || !correctText.trim()) {
-          res.status(400).json({ message: "Correct text is required for text dictation" });
+          res.status(400).json({ message: "Correct text is required" });
           return;
         }
 
@@ -325,11 +326,12 @@ export async function registerRoutes(
           return;
         }
 
-        const exam = await storage.createExam({ 
-          title: title.trim(), 
+        const exam = await storage.createExam({
+          title: title.trim(),
           isActive: isActive ?? false,
-          examType: "text",
-          correctText: correctText.trim()
+          examType: type,
+          correctText: correctText.trim(),
+          submissionMode: type === "passage" ? mode : "text",
         });
 
         // Create sentence records (distributed points to total 100)
@@ -446,8 +448,8 @@ export async function registerRoutes(
         return;
       }
 
-      // Full update for Text Dictation
-      if (currentExam.examType === "text" && title && correctText) {
+      // Full update for Text Dictation / Passage Memorization
+      if ((currentExam.examType === "text" || currentExam.examType === "passage") && title && correctText) {
         const updated = await storage.updateExam(examId, { 
           title, 
           isActive: isActive ?? currentExam.isActive,
@@ -1155,6 +1157,67 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     return { earned: Math.min(maxScore, earned), deductions: totalDeductions, details };
   }
 
+  // OCR: Extract text from handwritten image using MiniMax VL
+  app.post("/api/ocr-passage", async (req, res) => {
+    const apiKey = process.env.MINIMAX_API_KEY;
+    if (!apiKey) {
+      res.status(400).json({ message: "圖片評分功能未啟用" });
+      return;
+    }
+
+    const { imageBase64 } = req.body;
+    if (!imageBase64 || typeof imageBase64 !== "string") {
+      res.status(400).json({ message: "Missing imageBase64" });
+      return;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+      const response = await fetch("https://api.minimax.io/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "MiniMax-VL-01",
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+              },
+              {
+                type: "text",
+                text: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。",
+              },
+            ],
+          }],
+          max_tokens: 1000,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      const recognizedText = (data.choices?.[0]?.message?.content || "").trim();
+
+      if (!recognizedText) {
+        res.status(400).json({ message: "無法辨識圖片內容，請確保圖片清晰" });
+        return;
+      }
+
+      res.json({ recognizedText });
+    } catch (err: any) {
+      console.error("OCR error:", err?.message || err);
+      res.status(400).json({ message: "圖片辨識失敗，請重試" });
+    }
+  });
+
   // Submit Text Dictation (AI-scored) - supports sentence-by-sentence or full text mode
   app.post("/api/text-submissions", async (req, res) => {
     try {
@@ -1167,8 +1230,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       // Get the exam to find the correct text
       const exam = await storage.getExamById(examId);
-      if (!exam || exam.examType !== "text") {
-        res.status(400).json({ message: "Invalid exam or not a text dictation exam" });
+      if (!exam || (exam.examType !== "text" && exam.examType !== "passage")) {
+        res.status(400).json({ message: "Invalid exam or not a text/passage exam" });
         return;
       }
 
@@ -1320,9 +1383,143 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         return;
       }
 
-      // Legacy full text mode
+      // Full text mode (passage memorization or legacy)
       if (!studentText) {
         res.status(400).json({ message: "Student text is required" });
+        return;
+      }
+
+      // For passage exams, grade sentence-by-sentence using stored sentences
+      if (exam.examType === "passage" && sentences.length > 0) {
+        // Split student text into sentences
+        const studentSentences = studentText.trim()
+          .split(/(?<=[.!?。！？])\s*/)
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0);
+
+        let totalScore = 0;
+        let maxScore = 0;
+        const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
+        const scoringResults: { sentence: typeof sentences[0]; studentSentence: string; scoreResult: ReturnType<typeof computeSentenceScore> }[] = [];
+
+        for (let i = 0; i < sentences.length; i++) {
+          const sentence = sentences[i];
+          const studentSentence = studentSentences[i] || "";
+          maxScore += sentence.maxScore;
+          const scoreResult = computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
+          totalScore += scoreResult.earned;
+          scoringResults.push({ sentence, studentSentence, scoreResult });
+        }
+
+        const feedbackPromises = scoringResults.map(async ({ sentence, studentSentence, scoreResult }) => {
+          let sentenceFeedback = "";
+          if (scoreResult.details.length === 0) {
+            sentenceFeedback = "完全正確！非常好！";
+          } else {
+            sentenceFeedback = scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
+            try {
+              const prompt = `你是英語背默考試的老師。以下是一位學生的背默結果，請根據扣分明細，用繁體中文給出簡短、有建設性的學習建議（不要重複扣分明細，只給建議）。控制在40字以內。
+
+正確答案：${sentence.correctSentence}
+學生答案：${studentSentence}
+扣分明細：${scoreResult.details.join("；")}
+
+只回覆建議文字，不要JSON。`;
+
+              const apiKey = process.env.MINIMAX_API_KEY;
+              if (apiKey) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000);
+                try {
+                  const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
+                    method: 'POST',
+                    headers: {
+                      'Authorization': `Bearer ${apiKey}`,
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      model: 'abab6.5s-chat',
+                      messages: [{ role: 'user', content: prompt }],
+                      max_tokens: 200,
+                      temperature: 0.3,
+                    }),
+                    signal: controller.signal,
+                  });
+                  clearTimeout(timeoutId);
+                  const data = await response.json();
+                  const aiAdvice = (data.choices?.[0]?.message?.content || "").trim();
+                  if (aiAdvice && aiAdvice.length < 100) {
+                    sentenceFeedback += `。建議：${aiAdvice}`;
+                  }
+                } catch (fetchError: any) {
+                  console.error("AI feedback fetch error:", fetchError?.message || fetchError);
+                }
+              }
+            } catch (aiErr: any) {
+              console.error("AI feedback error:", aiErr?.message || aiErr);
+            }
+          }
+          return {
+            sentenceId: sentence.id,
+            earned: scoreResult.earned,
+            max: sentence.maxScore,
+            feedback: sentenceFeedback,
+            studentSentence,
+          };
+        });
+
+        const resolvedResults = await Promise.all(feedbackPromises);
+        for (const r of resolvedResults) {
+          sentenceResults.push(r);
+        }
+
+        const finalTotalScore = Math.round(totalScore);
+
+        const submission = await storage.createTextSubmission({
+          examId,
+          studentName,
+          studentNumber,
+          originalClass,
+          mixedClass,
+          studentText,
+          totalScore: finalTotalScore,
+          maxScore,
+          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("; "),
+        });
+
+        const answerDetails = sentenceResults.map(r => ({
+          submissionId: submission.id,
+          sentenceId: r.sentenceId,
+          studentSentence: (r as any).studentSentence || "",
+          earnedScore: Math.round(r.earned),
+          feedback: r.feedback,
+        }));
+        await storage.createTextAnswerDetails(answerDetails);
+
+        let earnedBadges: string[] = [];
+        try {
+          const prevRecords = await getStudentSubmissions(studentName, studentNumber, originalClass);
+          const prevBadgeIds = computeBadges(prevRecords.filter(r => new Date(r.submittedAt).getTime() < Date.now() - 5000));
+          const allBadgeIds = computeBadges(prevRecords);
+          earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
+        } catch (e) {
+          console.error("Badge computation error:", e);
+        }
+
+        res.json({
+          totalScore: finalTotalScore,
+          maxScore,
+          earnedBadges,
+          sentenceResults: sentenceResults.map((r, i) => ({
+            sentenceId: r.sentenceId,
+            earned: Math.round(r.earned),
+            max: r.max,
+            studentSentence: (r as any).studentSentence || "",
+            correctSentence: sentences.find(s => s.id === r.sentenceId)?.correctSentence || "",
+            feedback: r.feedback || "",
+          })),
+          studentName,
+        });
         return;
       }
 
@@ -1333,8 +1530,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       const scoreResult = computeSentenceScore(exam.correctText, studentText, 100);
       let totalScore = Math.round(scoreResult.earned);
-      let feedback = scoreResult.details.length === 0 
-        ? "完全正確！非常好！" 
+      let feedback = scoreResult.details.length === 0
+        ? "完全正確！非常好！"
         : scoreResult.details.join("；");
 
       const submission = await storage.createTextSubmission({

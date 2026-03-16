@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, ShieldAlert } from "lucide-react";
+import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, ShieldAlert, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -32,6 +32,7 @@ interface ExamWithSentences {
   id: number;
   title: string;
   examType: string;
+  submissionMode: string;
   isActive: boolean;
   createdAt: Date;
   correctText: string | null;
@@ -52,6 +53,10 @@ export default function StudentExam() {
   const [warningCount, setWarningCount] = useState(0);
   const [showCheatAlert, setShowCheatAlert] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [ocrText, setOcrText] = useState<string | null>(null);
+  const [isOcring, setIsOcring] = useState(false);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
@@ -101,7 +106,8 @@ export default function StudentExam() {
     enabled: !!studentInfo && !!id,
   });
 
-  const isTextExam = activeExam?.examType === "text";
+  const isTextExam = activeExam?.examType === "text" || activeExam?.examType === "passage";
+  const isPassageExam = activeExam?.examType === "passage";
 
   const submitMutation = useMutation({
     mutationFn: async (data: { 
@@ -160,7 +166,7 @@ export default function StudentExam() {
     },
   });
 
-  const isSubmitting = submitMutation.isPending || submitTextMutation.isPending;
+  const isSubmitting = submitMutation.isPending || submitTextMutation.isPending || isOcring;
 
   // Anti-cheating: visibility change detection
   useEffect(() => {
@@ -192,6 +198,35 @@ export default function StudentExam() {
   }, [isSubmitting, toast]);
 
   const hasSentences = activeExam && 'sentences' in activeExam && activeExam.sentences?.length > 0;
+  const isImageMode = isPassageExam && 'submissionMode' in (activeExam || {}) && (activeExam as ExamWithSentences)?.submissionMode === "image";
+
+  async function compressImage(file: File): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1000;
+        let w = img.width, h = img.height;
+        if (w > MAX || h > MAX) {
+          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImageFile(file);
+    setOcrText(null);
+    setImagePreviewUrl(URL.createObjectURL(file));
+  };
 
   const handleAnswerChange = (questionId: number, field: keyof VocabAnswer, value: string) => {
     setAnswers(prev => ({
@@ -218,32 +253,55 @@ export default function StudentExam() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!activeExam) return;
 
-    if (activeExam.examType === "text") {
-      if (hasSentences) {
+    if (activeExam.examType === "text" || activeExam.examType === "passage") {
+      if (isImageMode) {
+        if (!imageFile) {
+          toast({ title: "請先上傳手寫圖片", variant: "destructive" });
+          return;
+        }
+        // Run OCR first, then show confirm dialog
+        setIsOcring(true);
+        try {
+          const base64 = await compressImage(imageFile);
+          const resp = await apiRequest("POST", "/api/ocr-passage", { imageBase64: base64 });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.message || "OCR 失敗");
+          setOcrText(data.recognizedText);
+          setTextAnswer(data.recognizedText);
+        } catch (err: any) {
+          toast({ title: err.message || "圖片辨識失敗，請重試", variant: "destructive" });
+          setIsOcring(false);
+          return;
+        }
+        setIsOcring(false);
+        setShowConfirmDialog(true);
+        return;
+      }
+      if (hasSentences && !isPassageExam) {
         const exam = activeExam as ExamWithSentences;
         const sentenceSubmissions = exam.sentences.map(s => ({
           sentenceId: s.id,
           studentSentence: sentenceAnswers[s.id]?.trim() || "",
         }));
-        
+
         const emptyCount = sentenceSubmissions.filter(s => !s.studentSentence).length;
         if (emptyCount > 0) {
-          toast({ 
-            title: `請填寫所有句子 (尚有 ${emptyCount} 句未填)`, 
-            variant: "destructive" 
+          toast({
+            title: `請填寫所有句子 (尚有 ${emptyCount} 句未填)`,
+            variant: "destructive"
           });
           return;
         }
       } else {
         if (!textAnswer.trim()) {
-          toast({ 
-            title: "Please enter your dictation", 
-            variant: "destructive" 
+          toast({
+            title: "請輸入你的答案",
+            variant: "destructive"
           });
           return;
         }
@@ -257,8 +315,8 @@ export default function StudentExam() {
     if (!activeExam) return;
     setShowConfirmDialog(false);
 
-    if (activeExam.examType === "text") {
-      if (hasSentences) {
+    if (activeExam.examType === "text" || activeExam.examType === "passage") {
+      if (hasSentences && !isPassageExam) {
         const exam = activeExam as ExamWithSentences;
         const sentenceSubmissions = exam.sentences.map(s => ({
           sentenceId: s.id,
@@ -362,14 +420,14 @@ export default function StudentExam() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {isTextExam ? <FileText className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
-              {isTextExam ? "Text Dictation" : "Vocabulary Test"}
+              {isPassageExam ? <BookOpen className="w-5 h-5" /> : isTextExam ? <FileText className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
+              {isPassageExam ? "背默" : isTextExam ? "Text Dictation" : "Vocabulary Test"}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} onKeyDown={handleKeyDown} className="space-y-6">
               {isTextExam ? (
-                hasSentences ? (
+                hasSentences && !isPassageExam ? (
                   <div className="space-y-4">
                     {(activeExam as ExamWithSentences).sentences
                       .sort((a, b) => a.sentenceOrder - b.sentenceOrder)
@@ -393,10 +451,42 @@ export default function StudentExam() {
                       </div>
                     ))}
                   </div>
+                ) : isImageMode ? (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">請用手寫完整課文後，拍照或選擇圖片上傳。系統會自動辨識文字並評分。</p>
+                    <label className="block">
+                      <span className="sr-only">選擇圖片</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleImageChange}
+                        className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
+                      />
+                    </label>
+                    {imagePreviewUrl && (
+                      <img src={imagePreviewUrl} alt="上傳預覽" className="max-h-48 rounded border object-contain" />
+                    )}
+                    {isOcring && (
+                      <p className="text-sm text-muted-foreground flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        正在辨識圖片文字...
+                      </p>
+                    )}
+                    {ocrText && (
+                      <div className="p-3 bg-muted rounded-md text-sm space-y-1">
+                        <p className="font-medium">系統識別內容：</p>
+                        <p className="whitespace-pre-wrap text-muted-foreground">{ocrText}</p>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-4">
+                    {isPassageExam && (
+                      <p className="text-sm text-muted-foreground">憑記憶默寫整段課文，不會有任何提示。</p>
+                    )}
                     <Textarea
-                      placeholder="在此輸入聽寫內容..."
+                      placeholder={isPassageExam ? "在此輸入背默內容..." : "在此輸入聽寫內容..."}
                       value={textAnswer}
                       onChange={(e) => setTextAnswer(e.target.value)}
                       onPaste={handlePaste}
@@ -453,7 +543,7 @@ export default function StudentExam() {
               )}
 
               <Button type="button" onClick={handleSubmit as any} className="w-full h-12 text-lg" disabled={isSubmitting} data-testid="button-submit-exam">
-                {isSubmitting ? "正在提交..." : "提交測驗"}
+                {isOcring ? "正在辨識圖片..." : isSubmitting ? "正在提交..." : "提交測驗"}
               </Button>
             </form>
           </CardContent>

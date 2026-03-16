@@ -10,10 +10,10 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Save, FileText, ListOrdered, Eye, Loader2, BookOpen, List } from "lucide-react";
+import { ArrowLeft, Save, FileText, ListOrdered, Eye, Loader2, BookOpen, List, BrainCircuit } from "lucide-react";
 import type { ExamWithQuestions } from "@shared/schema";
 
-type ExamType = "vocab" | "text";
+type ExamType = "vocab" | "text" | "passage";
 
 export default function AdminCreateExam() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +21,7 @@ export default function AdminCreateExam() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [examType, setExamType] = useState<ExamType>("vocab");
+  const [submissionMode, setSubmissionMode] = useState<"text" | "image">("text");
   const [title, setTitle] = useState("");
   const [vocabularies, setVocabularies] = useState("");
   const [correctText, setCorrectText] = useState("");
@@ -36,9 +37,12 @@ export default function AdminCreateExam() {
       setTitle(existingExam.title);
       setIsActive(existingExam.isActive);
       setExamType((existingExam.examType as ExamType) || "vocab");
-      
-      if (existingExam.examType === "text" && existingExam.correctText) {
+
+      if ((existingExam.examType === "text" || existingExam.examType === "passage") && existingExam.correctText) {
         setCorrectText(existingExam.correctText);
+        if (existingExam.submissionMode) {
+          setSubmissionMode(existingExam.submissionMode as "text" | "image");
+        }
       } else {
         const vocabString = existingExam.questions
           .sort((a, b) => a.wordOrder - b.wordOrder)
@@ -57,12 +61,13 @@ export default function AdminCreateExam() {
   }, [navigate]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: { 
-      title: string; 
+    mutationFn: async (data: {
+      title: string;
       examType: ExamType;
-      vocabularies?: string; 
+      vocabularies?: string;
       correctText?: string;
-      isActive: boolean 
+      isActive: boolean;
+      submissionMode?: "text" | "image";
     }) => {
       const url = isEdit ? `/api/exams/${id}` : "/api/exams";
       const method = isEdit ? "PATCH" : "POST";
@@ -102,27 +107,28 @@ export default function AdminCreateExam() {
         toast({ title: "Please enter at least one vocabulary entry", variant: "destructive" });
         return;
       }
-      saveMutation.mutate({ 
-        title: title.trim(), 
+      saveMutation.mutate({
+        title: title.trim(),
         examType,
-        vocabularies: vocabularies.trim(), 
-        isActive 
+        vocabularies: vocabularies.trim(),
+        isActive
       });
     } else {
       if (!correctText.trim()) {
-        toast({ title: "Please enter the correct text for dictation", variant: "destructive" });
+        toast({ title: "Please enter the correct text", variant: "destructive" });
         return;
       }
-      saveMutation.mutate({ 
-        title: title.trim(), 
+      saveMutation.mutate({
+        title: title.trim(),
         examType,
-        correctText: correctText.trim(), 
-        isActive 
+        correctText: correctText.trim(),
+        isActive,
+        submissionMode: examType === "passage" ? submissionMode : "text",
       });
     }
   };
   
-  const isFormValid = examType === "vocab" 
+  const isFormValid = examType === "vocab"
     ? (title.trim() && vocabularies.trim())
     : (title.trim() && correctText.trim());
 
@@ -173,7 +179,7 @@ export default function AdminCreateExam() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <button
                     type="button"
                     onClick={() => setExamType("vocab")}
@@ -194,7 +200,7 @@ export default function AdminCreateExam() {
                       單字測驗：Word | POS | Meaning 格式，每部分獨立評分
                     </p>
                   </button>
-                  
+
                   <button
                     type="button"
                     onClick={() => setExamType("text")}
@@ -215,6 +221,27 @@ export default function AdminCreateExam() {
                       段落默書：AI 智能評分整段文字，檢查拼字、標點、大小寫
                     </p>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setExamType("passage")}
+                    data-testid="button-type-passage"
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      examType === "passage"
+                        ? "border-primary bg-primary/5"
+                        : "border-muted hover:border-muted-foreground/30"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className={`p-2 rounded-md ${examType === "passage" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+                        <BrainCircuit className="w-5 h-5" />
+                      </div>
+                      <span className="font-semibold">背默</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      課文背默：學生憑記憶默寫整段課文，AI 評分
+                    </p>
+                  </button>
                 </div>
               </CardContent>
             </Card>
@@ -224,13 +251,14 @@ export default function AdminCreateExam() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <FileText className="w-5 h-5" />
-                {examType === "vocab" ? "Vocabulary Quiz Details" : "Text Dictation Details"}
+                {examType === "vocab" ? "Vocabulary Quiz Details" : examType === "text" ? "Text Dictation Details" : "背默詳情"}
               </CardTitle>
               <CardDescription>
-                {examType === "vocab" 
+                {examType === "vocab"
                   ? "Enter the exam title and vocabulary list in format: Word | POS | Meaning"
-                  : "Enter the exam title and the correct text for AI-powered grading"
-                }
+                  : examType === "text"
+                  ? "Enter the exam title and the correct text for AI-powered grading"
+                  : "輸入試題名稱及學生需要背默的課文"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
@@ -249,7 +277,7 @@ export default function AdminCreateExam() {
                 <div className="p-3 bg-muted rounded-md mb-2">
                   <span className="text-sm text-muted-foreground">Exam Type: </span>
                   <Badge variant="secondary">
-                    {examType === "vocab" ? "Vocab Quiz" : "Text Dictation"}
+                    {examType === "vocab" ? "Vocab Quiz" : examType === "text" ? "Text Dictation" : "背默"}
                   </Badge>
                 </div>
               )}
@@ -259,7 +287,7 @@ export default function AdminCreateExam() {
                 <Input
                   id="title"
                   data-testid="input-exam-title"
-                  placeholder={examType === "vocab" ? "e.g., Week 1 Vocabulary Test" : "e.g., Week 1 Dictation"}
+                  placeholder={examType === "vocab" ? "e.g., Week 1 Vocabulary Test" : examType === "text" ? "e.g., Week 1 Dictation" : "e.g., Unit 3 背默"}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className="h-11"
@@ -287,20 +315,53 @@ export default function AdminCreateExam() {
               ) : (
                 <div className="space-y-2">
                   <Label htmlFor="correctText" className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-muted-foreground" />
-                    Correct Text
+                    {examType === "passage" ? <BrainCircuit className="w-4 h-4 text-muted-foreground" /> : <BookOpen className="w-4 h-4 text-muted-foreground" />}
+                    {examType === "passage" ? "課文內容" : "Correct Text"}
                   </Label>
                   <Textarea
                     id="correctText"
                     data-testid="textarea-correct-text"
-                    placeholder="Enter the correct text that students should transcribe...&#10;&#10;Example:&#10;The quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet."
+                    placeholder={examType === "passage"
+                      ? "輸入學生需要背默的完整課文..."
+                      : "Enter the correct text that students should transcribe...\n\nExample:\nThe quick brown fox jumps over the lazy dog. This sentence contains every letter of the English alphabet."}
                     value={correctText}
                     onChange={(e) => setCorrectText(e.target.value)}
                     className="min-h-[200px] text-sm"
                   />
                   <p className="text-sm text-muted-foreground">
-                    AI will grade based on: Spelling (50pts), Punctuation (25pts), Capitalization (15pts), Word omission/addition (10pts)
+                    {examType === "passage"
+                      ? "學生須憑記憶默寫全文，系統會逐句比對並以 AI 評分"
+                      : "AI will grade based on: Spelling (50pts), Punctuation (25pts), Capitalization (15pts), Word omission/addition (10pts)"}
                   </p>
+                </div>
+              )}
+
+              {examType === "passage" && (
+                <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <Label className="font-medium">學生提交方式</Label>
+                    <p className="text-sm text-muted-foreground">
+                      文字輸入：學生在網頁打字；拍照上傳：學生拍下手寫稿，AI 辨識後評分
+                    </p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={submissionMode === "text" ? "default" : "outline"}
+                      onClick={() => setSubmissionMode("text")}
+                    >
+                      文字輸入
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={submissionMode === "image" ? "default" : "outline"}
+                      onClick={() => setSubmissionMode("image")}
+                    >
+                      拍照上傳
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -353,7 +414,7 @@ export default function AdminCreateExam() {
             </Card>
           )}
           
-          {examType === "text" && correctText.trim() && (() => {
+          {(examType === "text" || examType === "passage") && correctText.trim() && (() => {
             const sentences = correctText.trim()
               .split(/(?<=[.!?。！？])\s*/)
               .map(s => s.trim())
@@ -363,17 +424,19 @@ export default function AdminCreateExam() {
                 <CardHeader>
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Eye className="w-5 h-5" />
-                    句子預覽 ({sentences.length} 句)
+                    {examType === "passage" ? `課文預覽 (共 ${sentences.length} 句，逐句評分)` : `句子預覽 (${sentences.length} 句)`}
                   </CardTitle>
                   <CardDescription>
-                    按以下順序讀出每句，學生將逐句輸入
+                    {examType === "passage"
+                      ? "學生須憑記憶默寫全文，不會看到任何提示"
+                      : "按以下順序讀出每句，學生將逐句輸入"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2">
                     {sentences.map((sentence, i) => (
-                      <div 
-                        key={i} 
+                      <div
+                        key={i}
                         className="flex items-start gap-3 p-3 bg-muted/50 rounded-md"
                       >
                         <Badge variant="default" className="shrink-0 mt-0.5">
