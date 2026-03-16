@@ -1283,20 +1283,24 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         return;
       }
 
-      // Parse SSE stream
+      // Parse SSE stream (track event type to catch error events)
       const rawText = await response.text();
       let recognizedText = "";
+      let currentEvent = "";
       for (const line of rawText.split("\n")) {
+        if (line.startsWith("event: ")) {
+          currentEvent = line.slice(7).trim();
+          continue;
+        }
         if (!line.startsWith("data: ")) continue;
         try {
           const data = JSON.parse(line.slice(6));
-          if (data.text) recognizedText += data.text;
-          if (data.allow_retry === false && data.text) {
-            // error event
+          if (currentEvent === "error" || data.allow_retry !== undefined) {
             console.error("Poe error event:", data.text);
-            res.status(400).json({ message: `OCR API 錯誤: ${data.text}` });
+            res.status(400).json({ message: `OCR API 錯誤: ${data.text || "未知錯誤"}` });
             return;
           }
+          if (data.text) recognizedText += data.text;
         } catch {}
       }
 
