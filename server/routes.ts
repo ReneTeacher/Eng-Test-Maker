@@ -1201,14 +1201,11 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
   // OCR: Extract text from handwritten image using MiniMax VL
   app.post("/api/ocr-passage", async (req, res) => {
-    const apiKey = process.env.MINIMAX_IO_API_KEY || process.env.MINIMAX_API_KEY;
+    const apiKey = process.env.POE_API_KEY;
     if (!apiKey) {
       res.status(400).json({ message: "圖片評分功能未啟用" });
       return;
     }
-    const endpoint = process.env.MINIMAX_IO_API_KEY
-      ? "https://api.minimax.io/v1/chat/completions"
-      : "https://api.minimax.chat/v1/chat/completions";
 
     const { imageBase64 } = req.body;
     if (!imageBase64 || typeof imageBase64 !== "string") {
@@ -1218,48 +1215,68 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const botName = process.env.POE_BOT_NAME || "Gemini-Flash";
+      const msgId = `m${Date.now()}`;
 
-      const response = await fetch(endpoint, {
+      const response = await fetch(`https://api.poe.com/bot/${botName}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
+          Accept: "text/event-stream",
         },
         body: JSON.stringify({
-          model: "MiniMax-VL-01",
-          messages: [{
+          version: "1.0",
+          type: "query",
+          query: [{
             role: "user",
-            content: [
-              {
-                type: "image_url",
-                image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
-              },
-              {
-                type: "text",
-                text: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。",
-              },
-            ],
+            content: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。",
+            content_type: "text/plain",
+            timestamp: Date.now() * 1000,
+            message_id: msgId,
+            feedback: [],
+            attachments: [{
+              url: `data:image/jpeg;base64,${imageBase64}`,
+              content_type: "image/jpeg",
+              name: "handwriting.jpg",
+            }],
           }],
-          max_tokens: 2000,
+          user_id: "",
+          conversation_id: msgId,
+          message_id: msgId,
         }),
         signal: controller.signal,
       });
 
       clearTimeout(timeoutId);
 
-      const data = await response.json();
-
       if (!response.ok) {
-        console.error("MiniMax VL API error:", JSON.stringify(data));
-        res.status(400).json({ message: `OCR API 錯誤: ${data?.error?.message || data?.message || response.status}` });
+        const errText = await response.text();
+        console.error("Poe API error:", errText);
+        res.status(400).json({ message: `OCR API 錯誤: ${response.status}` });
         return;
       }
 
-      const recognizedText = (data.choices?.[0]?.message?.content || "").trim();
+      // Parse SSE stream
+      const rawText = await response.text();
+      let recognizedText = "";
+      for (const line of rawText.split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.text) recognizedText += data.text;
+          if (data.allow_retry === false && data.text) {
+            // error event
+            console.error("Poe error event:", data.text);
+            res.status(400).json({ message: `OCR API 錯誤: ${data.text}` });
+            return;
+          }
+        } catch {}
+      }
 
+      recognizedText = recognizedText.trim();
       if (!recognizedText) {
-        console.error("MiniMax VL empty response:", JSON.stringify(data));
         res.status(400).json({ message: "無法辨識圖片內容，請確保圖片清晰" });
         return;
       }
