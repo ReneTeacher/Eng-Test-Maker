@@ -1214,6 +1214,23 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
 
     try {
+      // Step 1: upload image to tmpfiles.org to get a real URL
+      const imageBuffer = Buffer.from(imageBase64, "base64");
+      const uploadForm = new FormData();
+      uploadForm.append("file", new Blob([imageBuffer], { type: "image/jpeg" }), "handwriting.jpg");
+      const uploadRes = await fetch("https://tmpfiles.org/api/v1/upload", {
+        method: "POST",
+        body: uploadForm,
+      });
+      if (!uploadRes.ok) throw new Error("Image upload failed");
+      const uploadData = await uploadRes.json();
+      // tmpfiles.org view URL → direct download URL
+      const imageUrl = (uploadData?.data?.url as string).replace(
+        "https://tmpfiles.org/",
+        "https://tmpfiles.org/dl/"
+      );
+
+      // Step 2: query Poe with the real image URL
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000);
       const botName = process.env.POE_BOT_NAME || "Gemini-Flash";
@@ -1237,7 +1254,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             message_id: msgId,
             feedback: [],
             attachments: [{
-              url: `data:image/jpeg;base64,${imageBase64}`,
+              url: imageUrl,
               content_type: "image/jpeg",
               name: "handwriting.jpg",
             }],
