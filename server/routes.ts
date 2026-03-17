@@ -80,6 +80,52 @@ async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feed
   }
 }
 
+// AI filter: remove non-passage content from student submission (titles, dates, student info, etc.)
+async function aiFilterStudentText(
+  studentLines: string[],
+  correctText: string,
+): Promise<string[]> {
+  const apiKey = process.env.POE_API_KEY;
+  if (!apiKey || studentLines.length === 0) return studentLines;
+
+  const botName = process.env.POE_BOT_NAME || "Gemini-3.1-Flash-Lite";
+  const prompt = `以下是學生背默考試的手寫內容（已OCR轉文字），每行一個段落。
+正確的背默課文如下：
+---
+${correctText}
+---
+
+學生寫的內容中，有些行不屬於背默課文（例如測驗標題、日期、學號、姓名、班別等考試資訊）。
+請判斷每行是否屬於背默內容，只輸出屬於背默課文的行，一行一個，保持原始順序和原始文字。不要修改任何文字內容，不要加任何說明。
+
+學生寫的內容：
+${studentLines.join('\n')}`;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch("https://api.poe.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: botName,
+        messages: [{ role: "user", content: prompt }],
+        stream: false,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return studentLines;
+    const data = await response.json();
+    const content = (data.choices?.[0]?.message?.content as string) || "";
+    const filtered = content.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+    return filtered.length > 0 ? filtered : studentLines;
+  } catch (error) {
+    console.error("aiFilterStudentText failed, using original:", error);
+    return studentLines;
+  }
+}
+
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
 // Temporary in-memory image store for Poe OCR (auto-cleaned after 10 minutes)
@@ -1460,21 +1506,45 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       // For passage exams, grade sentence-by-sentence using stored sentences
       if (exam.examType === "passage" && sentences.length > 0) {
         // Split student text by newlines (matches AI-split segments)
-        const studentSentences = studentText
+        const rawStudentLines = studentText
           .split(/\r?\n/)
           .map((s: string) => s.trim())
           .filter((s: string) => s.length > 0);
+
+        // AI filter: remove non-passage content (titles, dates, student info)
+        const studentSentences = await aiFilterStudentText(rawStudentLines, exam.correctText || "");
 
         let totalScore = 0;
         let maxScore = 0;
         const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
         const scoringResults: { sentence: typeof sentences[0]; studentSentence: string; scoreResult: ReturnType<typeof computeSentenceScore> }[] = [];
 
+        // Smart matching: find best match within ±2 range instead of strict position
+        const usedIndices = new Set<number>();
         for (let i = 0; i < sentences.length; i++) {
           const sentence = sentences[i];
-          const studentSentence = studentSentences[i] || "";
           maxScore += sentence.maxScore;
-          const scoreResult = computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
+
+          let bestScore = -1;
+          let bestIdx = -1;
+          let bestResult: ReturnType<typeof computeSentenceScore> | null = null;
+
+          const searchStart = Math.max(0, i - 2);
+          const searchEnd = Math.min(studentSentences.length - 1, i + 2);
+
+          for (let j = searchStart; j <= searchEnd; j++) {
+            if (usedIndices.has(j)) continue;
+            const result = computeSentenceScore(sentence.correctSentence, studentSentences[j], sentence.maxScore);
+            if (result.earned > bestScore) {
+              bestScore = result.earned;
+              bestIdx = j;
+              bestResult = result;
+            }
+          }
+
+          if (bestIdx >= 0) usedIndices.add(bestIdx);
+          const studentSentence = bestIdx >= 0 ? studentSentences[bestIdx] : "";
+          const scoreResult = bestResult || computeSentenceScore(sentence.correctSentence, "", sentence.maxScore);
           totalScore += scoreResult.earned;
           scoringResults.push({ sentence, studentSentence, scoreResult });
         }
