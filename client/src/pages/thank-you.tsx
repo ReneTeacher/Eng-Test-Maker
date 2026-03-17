@@ -94,108 +94,60 @@ export default function ThankYou() {
   const WrongIcon = () => <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
 
   const renderWordDiff = (correct: string, student: string) => {
-    const splitWords = (s: string) => s.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length > 0);
-    const stripPunc = (w: string) => w.replace(/[.,!?;:'"()\-\[\]{}]/g, '').toLowerCase();
+    const correctWords = correct.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length > 0);
+    const studentWords = student.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length > 0);
+    const norm = (w: string) => w.replace(/[.,!?;:'"()\-\[\]{}]/g, '').toLowerCase();
 
-    const correctWords = splitWords(correct);
-    const studentWords = splitWords(student);
-    const cNorm = correctWords.map(stripPunc);
-    const sNorm = studentWords.map(stripPunc);
+    const cNorm = correctWords.map(norm);
+    const sNorm = studentWords.map(norm);
 
-    const levenshtein = (a: string, b: string): number => {
-      const la = a.length, lb = b.length;
-      if (la === 0) return lb;
-      if (lb === 0) return la;
-      const d: number[][] = Array.from({ length: la + 1 }, () => Array(lb + 1).fill(0));
-      for (let i = 0; i <= la; i++) d[i][0] = i;
-      for (let j = 0; j <= lb; j++) d[0][j] = j;
-      for (let i = 1; i <= la; i++) {
-        for (let j = 1; j <= lb; j++) {
-          d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-        }
-      }
-      return d[la][lb];
-    };
-
-    // LCS to find matched words
+    // LCS on words
     const m = cNorm.length, n = sNorm.length;
     const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
+    for (let i = 1; i <= m; i++)
+      for (let j = 1; j <= n; j++)
         dp[i][j] = cNorm[i - 1] === sNorm[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-    const lcs: { ci: number; si: number }[] = [];
+
+    const matchedC = new Set<number>();
+    const matchedS = new Set<number>();
     let ii = m, jj = n;
     while (ii > 0 && jj > 0) {
-      if (cNorm[ii - 1] === sNorm[jj - 1]) { lcs.unshift({ ci: ii - 1, si: jj - 1 }); ii--; jj--; }
+      if (cNorm[ii - 1] === sNorm[jj - 1]) { matchedC.add(ii - 1); matchedS.add(jj - 1); ii--; jj--; }
       else if (dp[ii - 1][jj] >= dp[ii][jj - 1]) ii--;
       else jj--;
     }
-    const matchedC = new Set(lcs.map(m => m.ci));
-    const matchedS = new Set(lcs.map(m => m.si));
 
-    // Typo detection for unmatched words
-    const unmatchedC = cNorm.map((_, i) => i).filter(i => !matchedC.has(i));
-    const unmatchedS = sNorm.map((_, i) => i).filter(i => !matchedS.has(i));
-    const typoMapC2S = new Map<number, number>(); // correct index -> student index
-    const pairedC = new Set<number>();
-    const pairedS = new Set<number>();
-
-    const candidates: { ci: number; si: number; dist: number }[] = [];
-    for (const ci of unmatchedC) {
-      for (const si of unmatchedS) {
-        const dist = levenshtein(cNorm[ci], sNorm[si]);
-        const threshold = cNorm[ci].length <= 3 ? 1 : 2;
-        if (dist > 0 && dist <= threshold) candidates.push({ ci, si, dist });
-      }
-    }
-    candidates.sort((a, b) => a.dist - b.dist || Math.abs(a.ci - a.si) - Math.abs(b.ci - b.si));
-    for (const c of candidates) {
-      if (pairedC.has(c.ci) || pairedS.has(c.si)) continue;
-      typoMapC2S.set(c.ci, c.si);
-      pairedC.add(c.ci);
-      pairedS.add(c.si);
-    }
-
-    const missingC = new Set(unmatchedC.filter(i => !pairedC.has(i)));
-    const extraS = new Set(unmatchedS.filter(i => !pairedS.has(i)));
-
-    // Build inline view based on correct sentence
-    const elements: JSX.Element[] = [];
-    for (let ci = 0; ci < correctWords.length; ci++) {
-      if (ci > 0) elements.push(<span key={`sp-${ci}`}> </span>);
-
-      if (matchedC.has(ci)) {
-        elements.push(<span key={`c-${ci}`} className="text-foreground">{correctWords[ci]}</span>);
-      } else if (typoMapC2S.has(ci)) {
-        const si = typoMapC2S.get(ci)!;
-        elements.push(
-          <span key={`c-${ci}`} className="text-red-600 dark:text-red-400">
-            <span className="font-medium">{correctWords[ci]}</span>
-            <span className="text-xs opacity-75">(你寫:{studentWords[si]})</span>
-          </span>
-        );
-      } else if (missingC.has(ci)) {
-        elements.push(
-          <span key={`c-${ci}`} className="text-red-600 dark:text-red-400 underline decoration-2">
-            {correctWords[ci]}<span className="text-xs align-super">漏</span>
-          </span>
-        );
-      }
-    }
-
-    // Extra words the student added
-    const extraWords = Array.from(extraS).map(si => studentWords[si]);
+    const missingWords = correctWords.filter((_, i) => !matchedC.has(i));
+    const extraWords = studentWords.filter((_, i) => !matchedS.has(i));
 
     return (
-      <div className="space-y-1.5" style={{ overflowWrap: "anywhere" }}>
-        <div className="leading-relaxed text-sm flex flex-wrap gap-y-0.5" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
-          {elements}
+      <div className="space-y-2 text-sm" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
+        <div>
+          <span className="text-muted-foreground text-xs block mb-0.5">正確答案：</span>
+          <p className="text-green-700 dark:text-green-400 leading-relaxed">{correct}</p>
         </div>
+        <div>
+          <span className="text-muted-foreground text-xs block mb-0.5">你的答案：</span>
+          <p className="text-foreground leading-relaxed">{student || "(未作答)"}</p>
+        </div>
+        {missingWords.length > 0 && (
+          <div>
+            <span className="text-muted-foreground text-xs block mb-0.5">漏寫/錯寫的詞：</span>
+            <p className="text-red-600 dark:text-red-400 leading-relaxed">
+              {missingWords.map((w, i) => (
+                <span key={i} className="inline-block bg-red-50 dark:bg-red-950/30 rounded px-1 py-0.5 mr-1 mb-1">{w}</span>
+              ))}
+            </p>
+          </div>
+        )}
         {extraWords.length > 0 && (
-          <div className="text-xs text-red-600 dark:text-red-400 opacity-80">
-            多寫了：<span className="line-through">{extraWords.join(", ")}</span>
+          <div>
+            <span className="text-muted-foreground text-xs block mb-0.5">多寫的詞：</span>
+            <p className="text-orange-600 dark:text-orange-400 leading-relaxed">
+              {extraWords.map((w, i) => (
+                <span key={i} className="inline-block bg-orange-50 dark:bg-orange-950/30 rounded px-1 py-0.5 mr-1 mb-1 line-through">{w}</span>
+              ))}
+            </p>
           </div>
         )}
       </div>
@@ -366,7 +318,7 @@ export default function ThankYou() {
                             </>
                           )}
                           {sr.feedback && !isFullScore && (
-                            <div className="mt-1.5 pt-2 border-t border-muted break-words">
+                            <div className="mt-1.5 pt-2 border-t border-muted" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
                               <div className="flex items-start gap-1.5">
                                 <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
                                 <div className="text-xs leading-relaxed space-y-0.5">

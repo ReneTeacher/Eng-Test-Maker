@@ -577,14 +577,20 @@ export async function registerRoutes(
         if (sentences.length > 0) {
           await storage.deleteTextSentencesByExamId(examId);
           const totalPoints = 100;
-          const pointsPerSentence = Math.floor(totalPoints / sentences.length);
-          const remainder = totalPoints % sentences.length;
+          const wordCounts = sentences.map((s: string) => s.split(/\s+/).filter((w: string) => w.length > 0).length);
+          const totalWords = wordCounts.reduce((a: number, b: number) => a + b, 0);
+          const rawScores = wordCounts.map((wc: number) => Math.max(1, Math.round((wc / totalWords) * totalPoints)));
+          const rawSum = rawScores.reduce((a: number, b: number) => a + b, 0);
+          if (rawSum !== totalPoints && rawScores.length > 0) {
+            const maxIdx = rawScores.indexOf(Math.max(...rawScores));
+            rawScores[maxIdx] += totalPoints - rawSum;
+          }
 
           const sentenceData = sentences.map((sentence: string, index: number) => ({
             examId,
             sentenceOrder: index + 1,
             correctSentence: sentence,
-            maxScore: pointsPerSentence + (index < remainder ? 1 : 0),
+            maxScore: rawScores[index] || 1,
           }));
           await storage.createTextSentences(sentenceData);
         }
