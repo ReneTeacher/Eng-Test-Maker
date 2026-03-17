@@ -994,7 +994,23 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           examTitle: exam?.title || "Vocabulary Dictation",
           totalScore: Math.round(totalScore),
           maxScore,
-          details: answerDetailsList.map((d, idx) => `Q${idx + 1}: ${d.earnedScore}分`).join(", "),
+          vocabDetails: answerDetailsList.map((d, idx) => {
+            const q = questions.find(qq => qq.id === d.questionId);
+            return {
+              index: idx + 1,
+              correctWord: q?.correctWord || "",
+              studentWord: d.studentWord,
+              wordCorrect: d.wordCorrect,
+              correctPos: q?.correctPos || "",
+              studentPos: d.studentPos,
+              posCorrect: d.posCorrect,
+              correctMeaning: q?.correctMeaning || "",
+              studentMeaning: d.studentMeaning,
+              meaningCorrect: d.meaningCorrect,
+              earned: d.earnedScore,
+              max: (q?.wordScore || 0) + (q?.posScore || 0) + (q?.meaningScore || 0),
+            };
+          }),
         }).catch(err => console.error("Email send error:", err));
       }
 
@@ -1500,7 +1516,17 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             examTitle: exam.title,
             totalScore: finalTotalScore,
             maxScore,
-            details: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("\n"),
+            sentenceDetails: sentenceResults.map((r, i) => {
+              const sentence = sentences.find(s => s.id === r.sentenceId);
+              return {
+                index: i + 1,
+                correct: sentence?.correctSentence || "",
+                student: sentenceAnswers.find((a: { sentenceId: number }) => a.sentenceId === r.sentenceId)?.studentSentence || "",
+                earned: Math.round(r.earned),
+                max: r.max,
+                feedback: r.feedback || "",
+              };
+            }),
           }).catch(err => console.error("Email send error:", err));
         }
 
@@ -1679,7 +1705,14 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             examTitle: exam.title,
             totalScore: finalTotalScore,
             maxScore,
-            details: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("\n"),
+            sentenceDetails: sentenceResults.map((r, i) => ({
+              index: i + 1,
+              correct: sentences.find(s => s.id === r.sentenceId)?.correctSentence || "",
+              student: (r as any).studentSentence || "",
+              earned: Math.round(r.earned),
+              max: r.max,
+              feedback: r.feedback || "",
+            })),
           }).catch(err => console.error("Email send error:", err));
         }
 
