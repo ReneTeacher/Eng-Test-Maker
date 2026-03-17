@@ -94,64 +94,13 @@ export default function ThankYou() {
   const WrongIcon = () => <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
 
   const renderWordDiff = (correct: string, student: string) => {
-    const tokenize = (s: string): string[] => {
-      const norm = s
-        .replace(/[\u2013\u2014\u2015]/g, ' - ')
-        .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
-        .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
-        .replace(/\u2026/g, '...')
-        .replace(/\u00A0/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-      const tokens: string[] = [];
-      const regex = /[A-Za-z]+(?:['-][A-Za-z]+)*/g;
-      let lastIdx = 0;
-      let match;
-      while ((match = regex.exec(norm)) !== null) {
-        const between = norm.slice(lastIdx, match.index).trim();
-        if (between) {
-          for (const ch of between) {
-            if (/[.,!?;:'"()\-\[\]{}]/.test(ch)) tokens.push(ch);
-          }
-        }
-        tokens.push(match[0]);
-        lastIdx = regex.lastIndex;
-      }
-      const remaining = norm.slice(lastIdx).trim();
-      if (remaining) {
-        for (const ch of remaining) {
-          if (/[.,!?;:'"()\-\[\]{}]/.test(ch)) tokens.push(ch);
-        }
-      }
-      return tokens;
-    };
+    const splitWords = (s: string) => s.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length > 0);
+    const stripPunc = (w: string) => w.replace(/[.,!?;:'"()\-\[\]{}]/g, '').toLowerCase();
 
-    const isPunc = (t: string) => /^[.,!?;:'"()\-\[\]{}]$/.test(t);
-    const correctTokens = tokenize(correct);
-    const studentTokens = tokenize(student);
-    const correctWords = correctTokens.filter(t => !isPunc(t));
-    const studentWords = studentTokens.filter(t => !isPunc(t));
-    const cLower = correctWords.map(w => w.toLowerCase());
-    const sLower = studentWords.map(w => w.toLowerCase());
-
-    const m = cLower.length, n = sLower.length;
-    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        if (cLower[i - 1] === sLower[j - 1]) dp[i][j] = dp[i - 1][j - 1] + 1;
-        else dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-    const lcsMatched: { ci: number; si: number }[] = [];
-    let ii = m, jj = n;
-    while (ii > 0 && jj > 0) {
-      if (cLower[ii - 1] === sLower[jj - 1]) { lcsMatched.unshift({ ci: ii - 1, si: jj - 1 }); ii--; jj--; }
-      else if (dp[ii - 1][jj] >= dp[ii][jj - 1]) ii--;
-      else jj--;
-    }
-
-    const matchedS = new Set(lcsMatched.map(m => m.si));
-    const matchedC = new Set(lcsMatched.map(m => m.ci));
+    const correctWords = splitWords(correct);
+    const studentWords = splitWords(student);
+    const cNorm = correctWords.map(stripPunc);
+    const sNorm = studentWords.map(stripPunc);
 
     const levenshtein = (a: string, b: string): number => {
       const la = a.length, lb = b.length;
@@ -168,81 +117,87 @@ export default function ThankYou() {
       return d[la][lb];
     };
 
-    const unmatchedC = cLower.map((_, i) => i).filter(i => !matchedC.has(i));
-    const unmatchedS = sLower.map((_, i) => i).filter(i => !matchedS.has(i));
-    const typoMap = new Map<number, number>();
+    // LCS to find matched words
+    const m = cNorm.length, n = sNorm.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = cNorm[i - 1] === sNorm[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    const lcs: { ci: number; si: number }[] = [];
+    let ii = m, jj = n;
+    while (ii > 0 && jj > 0) {
+      if (cNorm[ii - 1] === sNorm[jj - 1]) { lcs.unshift({ ci: ii - 1, si: jj - 1 }); ii--; jj--; }
+      else if (dp[ii - 1][jj] >= dp[ii][jj - 1]) ii--;
+      else jj--;
+    }
+    const matchedC = new Set(lcs.map(m => m.ci));
+    const matchedS = new Set(lcs.map(m => m.si));
+
+    // Typo detection for unmatched words
+    const unmatchedC = cNorm.map((_, i) => i).filter(i => !matchedC.has(i));
+    const unmatchedS = sNorm.map((_, i) => i).filter(i => !matchedS.has(i));
+    const typoMapC2S = new Map<number, number>(); // correct index -> student index
     const pairedC = new Set<number>();
     const pairedS = new Set<number>();
 
-    const typoCandidates: { ci: number; si: number; dist: number }[] = [];
+    const candidates: { ci: number; si: number; dist: number }[] = [];
     for (const ci of unmatchedC) {
       for (const si of unmatchedS) {
-        const dist = levenshtein(cLower[ci], sLower[si]);
-        const threshold = cLower[ci].length <= 3 ? 1 : 2;
-        if (dist > 0 && dist <= threshold) {
-          typoCandidates.push({ ci, si, dist });
-        }
+        const dist = levenshtein(cNorm[ci], sNorm[si]);
+        const threshold = cNorm[ci].length <= 3 ? 1 : 2;
+        if (dist > 0 && dist <= threshold) candidates.push({ ci, si, dist });
       }
     }
-    typoCandidates.sort((a, b) => a.dist - b.dist || Math.abs(a.ci - a.si) - Math.abs(b.ci - b.si));
-    for (const tc of typoCandidates) {
-      if (pairedC.has(tc.ci) || pairedS.has(tc.si)) continue;
-      typoMap.set(tc.si, tc.ci);
-      pairedC.add(tc.ci);
-      pairedS.add(tc.si);
+    candidates.sort((a, b) => a.dist - b.dist || Math.abs(a.ci - a.si) - Math.abs(b.ci - b.si));
+    for (const c of candidates) {
+      if (pairedC.has(c.ci) || pairedS.has(c.si)) continue;
+      typoMapC2S.set(c.ci, c.si);
+      pairedC.add(c.ci);
+      pairedS.add(c.si);
     }
 
-    const remC = unmatchedC.filter(i => !pairedC.has(i));
-    const remS = unmatchedS.filter(i => !pairedS.has(i));
-    if (remC.length > 0 && remS.length > 0) {
-      const posCandidates: { ci: number; si: number; posDiff: number }[] = [];
-      for (const ci of remC) {
-        for (const si of remS) {
-          posCandidates.push({ ci, si, posDiff: Math.abs(ci - si) });
-        }
-      }
-      posCandidates.sort((a, b) => a.posDiff - b.posDiff);
-      const maxPosDiff = Math.max(3, Math.floor(correctWords.length * 0.3));
-      for (const pc of posCandidates) {
-        if (pairedC.has(pc.ci) || pairedS.has(pc.si)) continue;
-        if (pc.posDiff <= maxPosDiff) {
-          typoMap.set(pc.si, pc.ci);
-          pairedC.add(pc.ci);
-          pairedS.add(pc.si);
-        }
-      }
-    }
-
+    const missingC = new Set(unmatchedC.filter(i => !pairedC.has(i)));
     const extraS = new Set(unmatchedS.filter(i => !pairedS.has(i)));
 
-    return (
-      <div className="space-y-1">
-        <div>
-          <span className="text-muted-foreground text-xs">正確答案：</span>
-          <span className="text-green-700 dark:text-green-400 text-sm font-medium">{correct}</span>
-        </div>
-        <div>
-          <span className="text-muted-foreground text-xs">學生答案：</span>
-          <span className="text-sm">
-            {studentWords.map((word, i) => {
-              const isExact = matchedS.has(i);
-              const isTypo = typoMap.has(i);
-              const isExtra = extraS.has(i);
-              let cls = "text-foreground";
-              if (isExtra) {
-                cls = "text-red-600 dark:text-red-400 line-through opacity-70";
-              } else if (isTypo) {
-                cls = "text-red-600 dark:text-red-400 font-medium underline decoration-wavy decoration-red-400 underline-offset-4";
-              }
-              return (
-                <span key={i}>
-                  {i > 0 && " "}
-                  <span className={cls}>{word}</span>
-                </span>
-              );
-            })}
+    // Build inline view based on correct sentence
+    const elements: JSX.Element[] = [];
+    for (let ci = 0; ci < correctWords.length; ci++) {
+      if (ci > 0) elements.push(<span key={`sp-${ci}`}> </span>);
+
+      if (matchedC.has(ci)) {
+        elements.push(<span key={`c-${ci}`} className="text-foreground">{correctWords[ci]}</span>);
+      } else if (typoMapC2S.has(ci)) {
+        const si = typoMapC2S.get(ci)!;
+        elements.push(
+          <span key={`c-${ci}`} className="text-red-600 dark:text-red-400">
+            <span className="font-medium">{correctWords[ci]}</span>
+            <span className="text-xs opacity-75">(你寫:{studentWords[si]})</span>
           </span>
+        );
+      } else if (missingC.has(ci)) {
+        elements.push(
+          <span key={`c-${ci}`} className="text-red-600 dark:text-red-400 underline decoration-2">
+            {correctWords[ci]}<span className="text-xs align-super">漏</span>
+          </span>
+        );
+      }
+    }
+
+    // Extra words the student added
+    const extraWords = Array.from(extraS).map(si => studentWords[si]);
+
+    return (
+      <div className="space-y-1.5 break-words overflow-wrap-anywhere">
+        <div className="leading-relaxed text-sm flex flex-wrap gap-y-0.5">
+          {elements}
         </div>
+        {extraWords.length > 0 && (
+          <div className="text-xs text-red-600 dark:text-red-400 opacity-80">
+            多寫了：<span className="line-through">{extraWords.join(", ")}</span>
+          </div>
+        )}
       </div>
     );
   };
@@ -411,10 +366,21 @@ export default function ThankYou() {
                             </>
                           )}
                           {sr.feedback && !isFullScore && (
-                            <div className="mt-1.5 pt-2 border-t border-muted">
+                            <div className="mt-1.5 pt-2 border-t border-muted break-words">
                               <div className="flex items-start gap-1.5">
                                 <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
-                                <span className="text-foreground text-xs leading-relaxed">{sr.feedback}</span>
+                                <div className="text-xs leading-relaxed space-y-0.5">
+                                  {sr.feedback.split(/[；;]/).map((part, pi) => {
+                                    const trimmed = part.trim();
+                                    if (!trimmed) return null;
+                                    const isAdvice = trimmed.startsWith("建議");
+                                    return (
+                                      <div key={pi} className={isAdvice ? "text-amber-700 dark:text-amber-400 mt-1" : "text-foreground"}>
+                                        {isAdvice ? `- ${trimmed}` : `- ${trimmed}`}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
                           )}
