@@ -81,30 +81,35 @@ async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feed
   }
 }
 
-// AI filter: remove non-passage content from student submission (titles, dates, student info, etc.)
-async function aiFilterStudentText(
-  studentLines: string[],
-  correctText: string,
+async function aiMatchStudentToSentences(
+  studentText: string,
+  correctSentences: string[],
 ): Promise<string[]> {
   const apiKey = process.env.POE_API_KEY;
-  if (!apiKey || studentLines.length === 0) return studentLines;
+  if (!apiKey) throw new Error("POE_API_KEY not configured");
 
   const botName = process.env.POE_BOT_NAME || "Gemini-3.1-Flash-Lite";
-  const prompt = `以下是學生背默考試的手寫內容（已OCR轉文字），每行一個段落。
-正確的背默課文如下：
+  const numbered = correctSentences.map((s, i) => `${i + 1}. ${s}`).join('\n');
+
+  const prompt = `You are matching a student's handwritten exam text (OCR'd) to ${correctSentences.length} reference sentences.
+
+Reference sentences:
+${numbered}
+
+Student's full text:
 ---
-${correctText}
+${studentText}
 ---
 
-學生寫的內容中，有些行不屬於背默課文（例如測驗標題、日期、學號、姓名、班別等考試資訊）。
-請判斷每行是否屬於背默內容，只輸出屬於背默課文的行，一行一個，保持原始順序和原始文字。不要修改任何文字內容，不要加任何說明。
+TASK: For each reference sentence (1-${correctSentences.length}), find the corresponding part in the student's text. The student may have written extra content like their name, date, class, exam title - ignore those parts. Keep the student's EXACT original words including any spelling errors.
 
-學生寫的內容：
-${studentLines.join('\n')}`;
+Return ONLY a JSON array of exactly ${correctSentences.length} strings. Index 0 = student's version of sentence 1, index 1 = sentence 2, etc. Use "" if the student didn't write that sentence.
 
+JSON:`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
     const response = await fetch("https://api.poe.com/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -116,15 +121,39 @@ ${studentLines.join('\n')}`;
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    if (!response.ok) return studentLines;
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
     const data = await response.json();
     const content = (data.choices?.[0]?.message?.content as string) || "";
-    const filtered = content.split('\n').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
-    return filtered.length > 0 ? filtered : studentLines;
+    const jsonMatch = content.match(/\[[\s\S]*?\]/);
+    if (!jsonMatch) throw new Error("No JSON array in response");
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(parsed) || parsed.length !== correctSentences.length) {
+      throw new Error(`Array length mismatch: got ${parsed?.length}, expected ${correctSentences.length}`);
+    }
+    console.log("AI sentence matching succeeded");
+    return parsed.map((s: any) => String(s || ""));
   } catch (error) {
-    console.error("aiFilterStudentText failed, using original:", error);
-    return studentLines;
+    clearTimeout(timeout);
+    console.error("aiMatchStudentToSentences failed:", error);
+    throw error;
   }
+}
+
+function fallbackSequentialMatch(
+  studentText: string,
+  sentences: { correctSentence: string; maxScore: number }[],
+): string[] {
+  const words = studentText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim().split(' ').filter((w: string) => w.length > 0);
+  let cursor = 0;
+  const result: string[] = [];
+  for (const s of sentences) {
+    const count = s.correctSentence.split(/\s+/).filter((w: string) => w.length > 0).length;
+    if (cursor >= words.length) { result.push(""); continue; }
+    const take = Math.min(count, words.length - cursor);
+    result.push(words.slice(cursor, cursor + take).join(' '));
+    cursor += take;
+  }
+  return result;
 }
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
@@ -1570,12 +1599,15 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       // For passage exams, grade sentence-by-sentence using stored sentences
       if (exam.examType === "passage" && sentences.length > 0) {
-        // Tokenize full student text into words (ignore line breaks)
-        const fullStudentText = studentText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-        const studentWords = fullStudentText.split(' ').filter((w: string) => w.length > 0);
+        const correctTexts = sentences.map(s => s.correctSentence);
+        let matchedStudentSentences: string[];
+        try {
+          matchedStudentSentences = await aiMatchStudentToSentences(studentText, correctTexts);
+        } catch {
+          console.log("AI matching failed, using fallback sequential match");
+          matchedStudentSentences = fallbackSequentialMatch(studentText, sentences);
+        }
 
-        // Sequentially consume student words for each correct sentence
-        let wordCursor = 0;
         let totalScore = 0;
         let maxScore = 0;
         const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
@@ -1584,45 +1616,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         for (let i = 0; i < sentences.length; i++) {
           const sentence = sentences[i];
           maxScore += sentence.maxScore;
-
-          const correctWordCount = sentence.correctSentence.split(/\s+/).filter((w: string) => w.length > 0).length;
-          // Take proportional number of student words (allow ±50% flexibility)
-          const takeCount = Math.min(
-            Math.ceil(correctWordCount * 1.5),
-            studentWords.length - wordCursor
-          );
-
-          if (wordCursor >= studentWords.length) {
-            // No more student words
-            const scoreResult = computeSentenceScore(sentence.correctSentence, "", sentence.maxScore);
-            totalScore += scoreResult.earned;
-            scoringResults.push({ sentence, studentSentence: "", scoreResult });
-            continue;
-          }
-
-          // Try different chunk sizes around the expected word count to find best match
-          let bestEarned = -1;
-          let bestTake = correctWordCount;
-          let bestResult: ReturnType<typeof computeSentenceScore> | null = null;
-
-          const minTake = Math.max(1, Math.floor(correctWordCount * 0.5));
-          const maxTake = Math.min(takeCount, Math.ceil(correctWordCount * 1.5));
-
-          for (let t = minTake; t <= maxTake; t++) {
-            if (wordCursor + t > studentWords.length) break;
-            const chunk = studentWords.slice(wordCursor, wordCursor + t).join(' ');
-            const result = computeSentenceScore(sentence.correctSentence, chunk, sentence.maxScore);
-            if (result.earned > bestEarned) {
-              bestEarned = result.earned;
-              bestTake = t;
-              bestResult = result;
-            }
-          }
-
-          const studentSentence = studentWords.slice(wordCursor, wordCursor + bestTake).join(' ');
-          wordCursor += bestTake;
-
-          const scoreResult = bestResult || computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
+          const studentSentence = matchedStudentSentences[i] || "";
+          const scoreResult = computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
           totalScore += scoreResult.earned;
           scoringResults.push({ sentence, studentSentence, scoreResult });
         }
