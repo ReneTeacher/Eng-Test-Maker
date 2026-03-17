@@ -189,8 +189,8 @@ export default function ThankYou() {
     const extraWords = Array.from(extraS).map(si => studentWords[si]);
 
     return (
-      <div className="space-y-1.5 break-words overflow-wrap-anywhere">
-        <div className="leading-relaxed text-sm flex flex-wrap gap-y-0.5">
+      <div className="space-y-1.5" style={{ overflowWrap: "anywhere" }}>
+        <div className="leading-relaxed text-sm flex flex-wrap gap-y-0.5" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
           {elements}
         </div>
         {extraWords.length > 0 && (

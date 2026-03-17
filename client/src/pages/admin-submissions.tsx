@@ -91,6 +91,8 @@ export default function AdminSubmissions() {
     enabled: !!examId,
   });
 
+  const isTextType = exam?.examType === "text" || exam?.examType === "passage";
+
   const { data: vocabSubmissions } = useQuery<StudentSubmission[]>({
     queryKey: ["/api/submissions"],
     enabled: exam?.examType === "vocab",
@@ -98,7 +100,7 @@ export default function AdminSubmissions() {
 
   const { data: textSubmissions } = useQuery<TextSubmission[]>({
     queryKey: ["/api/text-submissions"],
-    enabled: exam?.examType === "text",
+    enabled: isTextType,
   });
 
   const { data: analytics } = useQuery<Analytics>({
@@ -107,7 +109,7 @@ export default function AdminSubmissions() {
   });
 
   const submissions = useMemo(() => {
-    const all = exam?.examType === "text" 
+    const all = isTextType
       ? textSubmissions?.filter(s => s.examId === Number(examId)) || []
       : vocabSubmissions?.filter(s => s.examId === Number(examId)) || [];
     
@@ -129,7 +131,7 @@ export default function AdminSubmissions() {
 
   const updateScoreMutation = useMutation({
     mutationFn: async ({ id, totalScore, answers }: { id: number; totalScore: number; answers?: { id: number; earnedScore: number }[] }) => {
-      const endpoint = exam?.examType === "text" ? `/api/text-submissions/${id}` : `/api/submissions/${id}`;
+      const endpoint = isTextType ? `/api/text-submissions/${id}` : `/api/submissions/${id}`;
       const response = await apiRequest("PATCH", endpoint, { totalScore, answers });
       return response.json();
     },
@@ -148,7 +150,7 @@ export default function AdminSubmissions() {
 
   const deleteSubmissionMutation = useMutation({
     mutationFn: async (id: number) => {
-      const endpoint = exam?.examType === "text" ? `/api/text-submissions/${id}` : `/api/submissions/${id}`;
+      const endpoint = isTextType ? `/api/text-submissions/${id}` : `/api/submissions/${id}`;
       const response = await apiRequest("DELETE", endpoint);
       return response.json();
     },
@@ -171,15 +173,15 @@ export default function AdminSubmissions() {
   };
 
   const fetchSubmissionDetails = async (submissionId: number) => {
-    const endpoint = exam?.examType === "text" 
-      ? `/api/text-submissions/${submissionId}` 
+    const endpoint = isTextType
+      ? `/api/text-submissions/${submissionId}`
       : `/api/submissions/${submissionId}`;
     const response = await fetch(endpoint);
     const data = await response.json();
     setSelectedSubmission(data);
     setIsDetailOpen(true);
     
-    if (exam?.examType === "text") {
+    if (isTextType) {
       const detail = data as TextSubmissionDetail;
       const scores: Record<number, number> = {};
       detail.answers.forEach(a => { scores[a.id] = a.earnedScore; });
@@ -557,7 +559,7 @@ export default function AdminSubmissions() {
 
           {selectedSubmission && (
             <div className="space-y-4">
-              {exam?.examType === "text" ? (
+              {isTextType ? (
                 <div className="space-y-3">
                   {(selectedSubmission as TextSubmissionDetail).sentences
                     ?.sort((a, b) => a.sentenceOrder - b.sentenceOrder)

@@ -253,7 +253,7 @@ export default function AdminDashboard() {
                 </TableHeader>
                 <TableBody>
                   {exams.map((exam) => {
-                    const examSubmissions = exam.examType === "text"
+                    const examSubmissions = (exam.examType === "text" || exam.examType === "passage")
                       ? textSubmissions?.filter(s => s.examId === exam.id) || []
                       : submissions?.filter(s => s.examId === exam.id) || [];
                     return (
@@ -261,7 +261,7 @@ export default function AdminDashboard() {
                         <TableCell className="font-medium">{exam.title}</TableCell>
                         <TableCell>
                           <Badge variant="secondary">
-                            {exam.examType === "text" ? "Text" : "Vocab"}
+                            {exam.examType === "passage" ? "Passage" : exam.examType === "text" ? "Text" : "Vocab"}
                           </Badge>
                         </TableCell>
                         <TableCell>
