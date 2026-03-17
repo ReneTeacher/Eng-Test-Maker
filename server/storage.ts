@@ -143,6 +143,7 @@ export class DatabaseStorage implements IStorage {
       originalClass: submission.originalClass,
       mixedClass: submission.mixedClass,
       totalScore: submission.totalScore,
+      studentEmail: (submission as any).studentEmail || null,
     }).returning();
     return created;
   }
@@ -208,10 +209,12 @@ export class DatabaseStorage implements IStorage {
     totalScore: number;
     maxScore?: number;
     feedback?: string;
+    studentEmail?: string;
   }): Promise<TextSubmission> {
     const [created] = await db.insert(textSubmissions).values({
       ...data,
       maxScore: data.maxScore ?? 100,
+      studentEmail: data.studentEmail || null,
     }).returning();
     return created;
   }

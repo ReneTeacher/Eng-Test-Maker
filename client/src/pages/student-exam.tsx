@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, ShieldAlert, Loader2 } from "lucide-react";
+import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, ShieldAlert, Loader2, ImageIcon, Camera } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -57,6 +57,8 @@ export default function StudentExam() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [ocrText, setOcrText] = useState<string | null>(null);
   const [isOcring, setIsOcring] = useState(false);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
@@ -116,6 +118,7 @@ export default function StudentExam() {
     }) => {
       const response = await apiRequest("POST", "/api/submissions", {
         ...studentInfo,
+        studentEmail: studentInfo?.studentEmail,
         examId: data.examId,
         answers: data.answers,
       });
@@ -143,6 +146,7 @@ export default function StudentExam() {
     }) => {
       const response = await apiRequest("POST", "/api/text-submissions", {
         ...studentInfo,
+        studentEmail: studentInfo?.studentEmail,
         examId: data.examId,
         studentText: data.studentText || "",
         sentenceAnswers: data.sentenceAnswers,
@@ -264,7 +268,10 @@ export default function StudentExam() {
           toast({ title: "請先上傳手寫圖片", variant: "destructive" });
           return;
         }
-        // Run OCR first, then show confirm dialog
+        if (ocrText) {
+          setShowConfirmDialog(true);
+          return;
+        }
         setIsOcring(true);
         try {
           const base64 = await compressImage(imageFile);
@@ -454,16 +461,18 @@ export default function StudentExam() {
                 ) : isImageMode ? (
                   <div className="space-y-4">
                     <p className="text-sm text-muted-foreground">請用手寫完整課文後，拍照或選擇圖片上傳。系統會自動辨識文字並評分。</p>
-                    <label className="block">
-                      <span className="sr-only">選擇圖片</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handleImageChange}
-                        className="block w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
-                      />
-                    </label>
+                    <input ref={galleryInputRef} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                    <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleImageChange} className="hidden" />
+                    <div className="flex gap-3">
+                      <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => galleryInputRef.current?.click()}>
+                        <ImageIcon className="w-4 h-4 mr-2" />
+                        選擇相簿/文件
+                      </Button>
+                      <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => cameraInputRef.current?.click()}>
+                        <Camera className="w-4 h-4 mr-2" />
+                        拍照
+                      </Button>
+                    </div>
                     {imagePreviewUrl && (
                       <img src={imagePreviewUrl} alt="上傳預覽" className="max-h-48 rounded border object-contain" />
                     )}

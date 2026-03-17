@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { BookOpen, User, Hash, School, Users, AlertCircle, Star, Crown, Award, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck } from "lucide-react";
+import { BookOpen, User, Hash, School, Users, AlertCircle, Star, Crown, Award, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck, Mail } from "lucide-react";
 import type { Exam } from "@shared/schema";
 import type { BadgeDefinition } from "@shared/badges";
 
@@ -46,6 +46,7 @@ export default function StudentLogin() {
   const [studentNumber, setStudentNumber] = useState<string>("");
   const [originalClass, setOriginalClass] = useState<string>("");
   const [mixedClass, setMixedClass] = useState<string>("");
+  const [emailPrefix, setEmailPrefix] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const { data: exam, isLoading: examLoading, error: examError } = useQuery<Exam>({
@@ -98,6 +99,7 @@ export default function StudentLogin() {
       studentNumber: parseInt(studentNumber),
       originalClass,
       mixedClass,
+      studentEmail: emailPrefix.trim() ? `${emailPrefix.trim()}@fct.edu.mo` : undefined,
     };
     sessionStorage.setItem("studentInfo", JSON.stringify(studentInfo));
     
@@ -291,8 +293,33 @@ export default function StudentLogin() {
                 </Select>
               </div>
 
-              <Button 
-                type="submit" 
+              <div className="space-y-2">
+                <Label htmlFor="email" className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-muted-foreground" />
+                  School Email (Optional)
+                </Label>
+                <div className="flex items-center gap-0">
+                  <Input
+                    id="email"
+                    data-testid="input-email-prefix"
+                    placeholder="your.name"
+                    value={emailPrefix}
+                    onChange={(e) => setEmailPrefix(e.target.value)}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    className="h-11 rounded-r-none border-r-0"
+                  />
+                  <span className="h-11 flex items-center px-3 bg-muted border border-l-0 rounded-r-md text-sm text-muted-foreground whitespace-nowrap">
+                    @fct.edu.mo
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">填寫後系統會將成績報告發送到此郵箱</p>
+              </div>
+
+              <Button
+                type="submit"
                 className="w-full h-11 text-base font-medium"
                 disabled={isLoading}
                 data-testid="button-start-exam"

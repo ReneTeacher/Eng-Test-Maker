@@ -6,6 +6,7 @@ import ExcelJS from "exceljs";
 import { computeBadges, BADGE_DEFINITIONS, type SubmissionRecord } from "@shared/badges";
 import { db } from "./db";
 import { and, eq } from "drizzle-orm";
+import { sendScoreEmail } from "./email";
 
 // AI sentence splitting for passage type
 async function aiSplitPassage(text: string, apiKey: string): Promise<string[]> {
@@ -859,6 +860,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       }
 
       const { examId, studentName, studentNumber, originalClass, mixedClass, answers } = parsed.data;
+      const studentEmail = req.body.studentEmail as string | undefined;
 
       // Get exam questions to compare answers
       const questions = await storage.getQuestionsByExamId(examId);
@@ -951,6 +953,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         originalClass,
         mixedClass,
         totalScore: Math.round(totalScore),
+        studentEmail,
       } as any);
 
       // Create answer details with individual part scores
@@ -983,8 +986,20 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         console.error("Badge computation error:", e);
       }
 
-      res.json({ 
-        totalScore, 
+      if (studentEmail) {
+        const exam = await storage.getExamById(examId);
+        sendScoreEmail({
+          to: studentEmail,
+          studentName,
+          examTitle: exam?.title || "Vocabulary Dictation",
+          totalScore: Math.round(totalScore),
+          maxScore,
+          details: answerDetailsList.map((d, idx) => `Q${idx + 1}: ${d.earnedScore}分`).join(", "),
+        }).catch(err => console.error("Email send error:", err));
+      }
+
+      res.json({
+        totalScore,
         maxScore,
         totalQuestions: questions.length,
         studentName,
@@ -1335,8 +1350,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
   // Submit Text Dictation (AI-scored) - supports sentence-by-sentence or full text mode
   app.post("/api/text-submissions", async (req, res) => {
     try {
-      const { examId, studentName, studentNumber, originalClass, mixedClass, studentText, sentenceAnswers } = req.body;
-      
+      const { examId, studentName, studentNumber, originalClass, mixedClass, studentText, sentenceAnswers, studentEmail } = req.body;
+
       if (!examId || !studentName || !studentNumber || !originalClass || !mixedClass) {
         res.status(400).json({ message: "Missing required fields" });
         return;
@@ -1454,8 +1469,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           totalScore: finalTotalScore,
           maxScore,
           feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("; "),
+          studentEmail,
         });
-        
+
         // Save sentence answer details
         const answerDetails = sentenceResults.map((r, i) => ({
           submissionId: submission.id,
@@ -1475,6 +1491,17 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
         } catch (e) {
           console.error("Badge computation error:", e);
+        }
+
+        if (studentEmail) {
+          sendScoreEmail({
+            to: studentEmail,
+            studentName,
+            examTitle: exam.title,
+            totalScore: finalTotalScore,
+            maxScore,
+            details: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("\n"),
+          }).catch(err => console.error("Email send error:", err));
         }
 
         res.json({
@@ -1623,6 +1650,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           totalScore: finalTotalScore,
           maxScore,
           feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("; "),
+          studentEmail,
         });
 
         const answerDetails = sentenceResults.map(r => ({
@@ -1642,6 +1670,17 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
         } catch (e) {
           console.error("Badge computation error:", e);
+        }
+
+        if (studentEmail) {
+          sendScoreEmail({
+            to: studentEmail,
+            studentName,
+            examTitle: exam.title,
+            totalScore: finalTotalScore,
+            maxScore,
+            details: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("\n"),
+          }).catch(err => console.error("Email send error:", err));
         }
 
         res.json({
@@ -1682,6 +1721,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         totalScore,
         maxScore: 100,
         feedback,
+        studentEmail,
       });
 
       // Compute newly earned badges
@@ -1693,6 +1733,16 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
       } catch (e) {
         console.error("Badge computation error:", e);
+      }
+
+      if (studentEmail) {
+        sendScoreEmail({
+          to: studentEmail,
+          studentName,
+          examTitle: exam.title,
+          totalScore,
+          maxScore: 100,
+        }).catch(err => console.error("Email send error:", err));
       }
 
       res.json({

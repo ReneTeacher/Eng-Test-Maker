@@ -33,6 +33,7 @@ export const studentSubmissions = pgTable("student_submissions", {
   originalClass: text("original_class").notNull(),
   mixedClass: text("mixed_class").notNull(),
   totalScore: integer("total_score").notNull(),
+  studentEmail: text("student_email"),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 
@@ -59,6 +60,7 @@ export const textSubmissions = pgTable("text_submissions", {
   mixedClass: text("mixed_class").notNull(),
   studentText: text("student_text").notNull(),
   totalScore: integer("total_score").notNull(),
+  studentEmail: text("student_email"),
   maxScore: integer("max_score").notNull().default(100),
   feedback: text("feedback"),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
