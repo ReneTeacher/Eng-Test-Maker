@@ -1570,46 +1570,59 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       // For passage exams, grade sentence-by-sentence using stored sentences
       if (exam.examType === "passage" && sentences.length > 0) {
-        // Split student text by newlines (matches AI-split segments)
-        const rawStudentLines = studentText
-          .split(/\r?\n/)
-          .map((s: string) => s.trim())
-          .filter((s: string) => s.length > 0);
+        // Tokenize full student text into words (ignore line breaks)
+        const fullStudentText = studentText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+        const studentWords = fullStudentText.split(' ').filter((w: string) => w.length > 0);
 
-        // AI filter: remove non-passage content (titles, dates, student info)
-        const studentSentences = await aiFilterStudentText(rawStudentLines, exam.correctText || "");
-
+        // Sequentially consume student words for each correct sentence
+        let wordCursor = 0;
         let totalScore = 0;
         let maxScore = 0;
         const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
         const scoringResults: { sentence: typeof sentences[0]; studentSentence: string; scoreResult: ReturnType<typeof computeSentenceScore> }[] = [];
 
-        // Smart matching: find best match within ±2 range instead of strict position
-        const usedIndices = new Set<number>();
         for (let i = 0; i < sentences.length; i++) {
           const sentence = sentences[i];
           maxScore += sentence.maxScore;
 
-          let bestScore = -1;
-          let bestIdx = -1;
+          const correctWordCount = sentence.correctSentence.split(/\s+/).filter((w: string) => w.length > 0).length;
+          // Take proportional number of student words (allow ±50% flexibility)
+          const takeCount = Math.min(
+            Math.ceil(correctWordCount * 1.5),
+            studentWords.length - wordCursor
+          );
+
+          if (wordCursor >= studentWords.length) {
+            // No more student words
+            const scoreResult = computeSentenceScore(sentence.correctSentence, "", sentence.maxScore);
+            totalScore += scoreResult.earned;
+            scoringResults.push({ sentence, studentSentence: "", scoreResult });
+            continue;
+          }
+
+          // Try different chunk sizes around the expected word count to find best match
+          let bestEarned = -1;
+          let bestTake = correctWordCount;
           let bestResult: ReturnType<typeof computeSentenceScore> | null = null;
 
-          const searchStart = Math.max(0, i - 2);
-          const searchEnd = Math.min(studentSentences.length - 1, i + 2);
+          const minTake = Math.max(1, Math.floor(correctWordCount * 0.5));
+          const maxTake = Math.min(takeCount, Math.ceil(correctWordCount * 1.5));
 
-          for (let j = searchStart; j <= searchEnd; j++) {
-            if (usedIndices.has(j)) continue;
-            const result = computeSentenceScore(sentence.correctSentence, studentSentences[j], sentence.maxScore);
-            if (result.earned > bestScore) {
-              bestScore = result.earned;
-              bestIdx = j;
+          for (let t = minTake; t <= maxTake; t++) {
+            if (wordCursor + t > studentWords.length) break;
+            const chunk = studentWords.slice(wordCursor, wordCursor + t).join(' ');
+            const result = computeSentenceScore(sentence.correctSentence, chunk, sentence.maxScore);
+            if (result.earned > bestEarned) {
+              bestEarned = result.earned;
+              bestTake = t;
               bestResult = result;
             }
           }
 
-          if (bestIdx >= 0) usedIndices.add(bestIdx);
-          const studentSentence = bestIdx >= 0 ? studentSentences[bestIdx] : "";
-          const scoreResult = bestResult || computeSentenceScore(sentence.correctSentence, "", sentence.maxScore);
+          const studentSentence = studentWords.slice(wordCursor, wordCursor + bestTake).join(' ');
+          wordCursor += bestTake;
+
+          const scoreResult = bestResult || computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
           totalScore += scoreResult.earned;
           scoringResults.push({ sentence, studentSentence, scoreResult });
         }
