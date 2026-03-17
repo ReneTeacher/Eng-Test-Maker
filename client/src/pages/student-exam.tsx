@@ -125,15 +125,16 @@ export default function StudentExam() {
       return response.json();
     },
     onSuccess: (data) => {
+      if (studentInfo?.studentEmail) sessionStorage.setItem("studentEmail", studentInfo.studentEmail);
       sessionStorage.setItem("submissionResult", JSON.stringify(data));
       sessionStorage.removeItem("studentInfo");
       navigate("/thank-you");
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Submission Failed", 
+      toast({
+        title: "Submission Failed",
         description: error.message,
-        variant: "destructive" 
+        variant: "destructive"
       });
     },
   });
@@ -154,6 +155,7 @@ export default function StudentExam() {
       return response.json();
     },
     onSuccess: (data) => {
+      if (studentInfo?.studentEmail) sessionStorage.setItem("studentEmail", studentInfo.studentEmail);
       sessionStorage.setItem("submissionResult", JSON.stringify({
         ...data,
         isTextDictation: true,
@@ -162,10 +164,10 @@ export default function StudentExam() {
       navigate("/thank-you");
     },
     onError: (error: Error) => {
-      toast({ 
-        title: "Submission Failed", 
+      toast({
+        title: "Submission Failed",
         description: error.message,
-        variant: "destructive" 
+        variant: "destructive"
       });
     },
   });

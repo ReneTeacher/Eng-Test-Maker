@@ -125,6 +125,7 @@ export const studentLoginSchema = z.object({
   studentNumber: z.number().min(1).max(40),
   originalClass: z.enum(["J3A", "J3B", "J3C"]),
   mixedClass: z.enum(["初三英文1班", "初三英文2班", "初三英文3班"]),
+  studentEmail: z.string().optional(),
 });
 
 export const examSubmissionSchema = z.object({

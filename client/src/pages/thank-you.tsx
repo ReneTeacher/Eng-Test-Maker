@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Trophy, Home, XCircle, CircleCheck, Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck, AlertTriangle, Lightbulb } from "lucide-react";
+import { CheckCircle, Trophy, Home, XCircle, CircleCheck, Star, Crown, Award, BookOpen, GraduationCap, Flame, TrendingUp, BookText, Headphones, ShieldCheck, AlertTriangle, Lightbulb, Mail } from "lucide-react";
 import { BADGE_DEFINITIONS, type BadgeDefinition } from "@shared/badges";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -55,6 +55,7 @@ interface SubmissionResult {
 export default function ThankYou() {
   const [, navigate] = useLocation();
   const [result, setResult] = useState<SubmissionResult | null>(null);
+  const [studentEmail, setStudentEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("submissionResult");
@@ -63,6 +64,11 @@ export default function ThankYou() {
         setResult(JSON.parse(stored));
       } catch {
       }
+    }
+    const emailStored = sessionStorage.getItem("studentEmail");
+    if (emailStored) {
+      setStudentEmail(emailStored);
+      sessionStorage.removeItem("studentEmail");
     }
   }, []);
 
@@ -277,6 +283,13 @@ export default function ThankYou() {
                   {getScoreMessage()}
                 </p>
               </div>
+
+              {studentEmail && (
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  <Mail className="w-4 h-4 shrink-0" />
+                  <span>成績報告已發送至 <span className="font-medium text-foreground">{studentEmail}</span></span>
+                </div>
+              )}
 
               {earnedBadges.length > 0 && (
                 <div className="bg-muted/30 rounded-lg p-4 space-y-3" data-testid="section-earned-badges">
