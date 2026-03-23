@@ -1166,24 +1166,52 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
     // Expand concatenated words (student wrote without spaces, OCR merged them)
     const rawStudentWords = allStudentTokens.filter(t => !isPunc(t));
-    const studentWords: string[] = [];
+
+    // Phase 1: Expand concatenated student words (student wrote without spaces)
+    // e.g. "SunnyDay" → ["Sunny", "Day"] if correct has those consecutive words
+    const expandedStudentWords: string[] = [];
     for (const sw of rawStudentWords) {
       const swLower = sw.toLowerCase();
       let expanded = false;
       for (let start = 0; start < correctWordsLower.length && !expanded; start++) {
         let concat = "";
-        for (let end = start; end < Math.min(start + 4, correctWordsLower.length); end++) {
+        for (let end = start; end < Math.min(start + 5, correctWordsLower.length); end++) {
           concat += correctWordsLower[end];
           if (concat === swLower && end > start) {
             for (let k = start; k <= end; k++) {
-              studentWords.push(correctWords[k]);
+              expandedStudentWords.push(correctWords[k]);
             }
             expanded = true;
             break;
           }
         }
       }
-      if (!expanded) studentWords.push(sw);
+      if (!expanded) expandedStudentWords.push(sw);
+    }
+
+    // Phase 2: Merge split student words (student added extra spaces)
+    // e.g. ["Angel", "ina"] → ["Angelina"] if correct has "Angelina"
+    const studentWords: string[] = [];
+    const correctWordsLowerSet = new Set(correctWordsLower);
+    let si = 0;
+    while (si < expandedStudentWords.length) {
+      let merged = false;
+      // Try merging 2-4 consecutive student words
+      for (let len = Math.min(4, expandedStudentWords.length - si); len >= 2; len--) {
+        const combined = expandedStudentWords.slice(si, si + len).join('').toLowerCase();
+        if (correctWordsLowerSet.has(combined)) {
+          // Find the original correct word to preserve its casing
+          const idx = correctWordsLower.indexOf(combined);
+          studentWords.push(idx >= 0 ? correctWords[idx] : expandedStudentWords.slice(si, si + len).join(''));
+          si += len;
+          merged = true;
+          break;
+        }
+      }
+      if (!merged) {
+        studentWords.push(expandedStudentWords[si]);
+        si++;
+      }
     }
     const studentWordsLower = studentWords.map(w => w.toLowerCase());
 
