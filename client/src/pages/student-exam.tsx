@@ -558,7 +558,7 @@ export default function StudentExam() {
                           autoCorrect="off"
                           autoCapitalize="off"
                           spellCheck={false}
-                          className="min-h-[150px] text-sm font-mono"
+                          className="min-h-[50vh] text-sm font-mono"
                         />
                         <p className="text-xs text-muted-foreground">提示：每行對應一個評分單元（電郵每行一個部分）</p>
                       </div>
