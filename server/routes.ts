@@ -1162,8 +1162,29 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     const allStudentTokens = tokenize(studentSentence, correctHyphenated);
 
     const correctWords = allCorrectTokens.filter(t => !isPunc(t));
-    const studentWords = allStudentTokens.filter(t => !isPunc(t));
     const correctWordsLower = correctWords.map(w => w.toLowerCase());
+
+    // Expand concatenated words (student wrote without spaces, OCR merged them)
+    const rawStudentWords = allStudentTokens.filter(t => !isPunc(t));
+    const studentWords: string[] = [];
+    for (const sw of rawStudentWords) {
+      const swLower = sw.toLowerCase();
+      let expanded = false;
+      for (let start = 0; start < correctWordsLower.length && !expanded; start++) {
+        let concat = "";
+        for (let end = start; end < Math.min(start + 4, correctWordsLower.length); end++) {
+          concat += correctWordsLower[end];
+          if (concat === swLower && end > start) {
+            for (let k = start; k <= end; k++) {
+              studentWords.push(correctWords[k]);
+            }
+            expanded = true;
+            break;
+          }
+        }
+      }
+      if (!expanded) studentWords.push(sw);
+    }
     const studentWordsLower = studentWords.map(w => w.toLowerCase());
 
     const correctPuncTokens = allCorrectTokens.filter(t => isPunc(t));
@@ -1366,7 +1387,16 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             role: "user",
             content: [
               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-              { type: "text", text: "Please transcribe this handwritten English image EXACTLY as written, character by character. Do NOT correct spelling, grammar, or punctuation. Do NOT add or remove any words. Preserve original line breaks. Return ONLY the transcribed text with no explanation." },
+              { type: "text", text: `Transcribe this handwritten English image EXACTLY as the student wrote it.
+
+STRICT RULES:
+- Copy EVERY character exactly as written, including wrong spelling and wrong capitalization.
+- If the student wrote "becuse", output "becuse" — do NOT correct it to "because".
+- If the student wrote "the" in lowercase where uppercase is expected, keep it lowercase.
+- Preserve ALL original punctuation exactly as written — do not add, remove, or change any comma, period, apostrophe, etc.
+- If a punctuation mark is missing, do NOT add it.
+- Preserve original line breaks as they appear on the page.
+- Return ONLY the raw transcribed text. No titles, labels, explanations, or markdown formatting.` },
             ],
           }],
           stream: false,
@@ -1651,6 +1681,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         correctSentence: exam.correctText,
         studentSentence: studentText,
         feedback,
+        scoreDetails: scoreResult.details,
       });
     } catch (error) {
       console.error("Text submission error:", error);

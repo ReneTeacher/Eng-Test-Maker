@@ -53,6 +53,7 @@ interface SubmissionResult {
   correctSentence?: string;
   studentSentence?: string;
   feedback?: string;
+  scoreDetails?: string[];
 }
 
 export default function ThankYou() {
@@ -96,61 +97,155 @@ export default function ThankYou() {
   const CorrectIcon = () => <CircleCheck className="w-4 h-4 text-green-500 shrink-0" />;
   const WrongIcon = () => <XCircle className="w-4 h-4 text-red-500 shrink-0" />;
 
-  const renderWordDiff = (correct: string, student: string) => {
+  const renderWordDiff = (correct: string, student: string, scoreDetails?: string[]) => {
+    const norm = (w: string) => w.replace(/[.,!?;:'"()\-\[\]{}]/g, '').toLowerCase();
     const correctWords = correct.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length > 0);
     const studentWords = student.replace(/\s+/g, ' ').trim().split(' ').filter(w => w.length > 0);
-    const norm = (w: string) => w.replace(/[.,!?;:'"()\-\[\]{}]/g, '').toLowerCase();
-
     const cNorm = correctWords.map(norm);
     const sNorm = studentWords.map(norm);
 
-    // LCS on words
+    // LCS to align words
     const m = cNorm.length, n = sNorm.length;
     const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
     for (let i = 1; i <= m; i++)
       for (let j = 1; j <= n; j++)
         dp[i][j] = cNorm[i - 1] === sNorm[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
 
-    const matchedC = new Set<number>();
-    const matchedS = new Set<number>();
+    const matches: { ci: number; si: number }[] = [];
     let ii = m, jj = n;
     while (ii > 0 && jj > 0) {
-      if (cNorm[ii - 1] === sNorm[jj - 1]) { matchedC.add(ii - 1); matchedS.add(jj - 1); ii--; jj--; }
+      if (cNorm[ii - 1] === sNorm[jj - 1]) { matches.unshift({ ci: ii - 1, si: jj - 1 }); ii--; jj--; }
       else if (dp[ii - 1][jj] >= dp[ii][jj - 1]) ii--;
       else jj--;
     }
+    const matchedC = new Set(matches.map(m => m.ci));
+    const matchedS = new Set(matches.map(m => m.si));
 
-    const missingWords = correctWords.filter((_, i) => !matchedC.has(i));
-    const extraWords = studentWords.filter((_, i) => !matchedS.has(i));
+    // Find typos: unmatched pairs with small levenshtein distance
+    const lev = (a: string, b: string): number => {
+      const la = a.length, lb = b.length;
+      const d: number[][] = Array.from({ length: la + 1 }, () => Array(lb + 1).fill(0));
+      for (let i = 0; i <= la; i++) d[i][0] = i;
+      for (let j = 0; j <= lb; j++) d[0][j] = j;
+      for (let i = 1; i <= la; i++)
+        for (let j = 1; j <= lb; j++)
+          d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+      return d[la][lb];
+    };
+
+    const unmatchedC = correctWords.map((_, i) => i).filter(i => !matchedC.has(i));
+    const unmatchedS = studentWords.map((_, i) => i).filter(i => !matchedS.has(i));
+    const typoMap = new Map<number, number>(); // studentIdx -> correctIdx
+    const pairedC = new Set<number>();
+    const pairedS = new Set<number>();
+    const typoCands: { ci: number; si: number; dist: number }[] = [];
+    for (const ci of unmatchedC)
+      for (const si of unmatchedS) {
+        const dist = lev(cNorm[ci], sNorm[si]);
+        const thresh = cNorm[ci].length <= 3 ? 1 : 2;
+        if (dist > 0 && dist <= thresh) typoCands.push({ ci, si, dist });
+      }
+    typoCands.sort((a, b) => a.dist - b.dist || Math.abs(a.ci - a.si) - Math.abs(b.ci - b.si));
+    for (const tc of typoCands) {
+      if (pairedC.has(tc.ci) || pairedS.has(tc.si)) continue;
+      typoMap.set(tc.si, tc.ci);
+      pairedC.add(tc.ci);
+      pairedS.add(tc.si);
+    }
+
+    // Build teacher-annotated student text
+    // Walk through both arrays in order, interleaving missing words at the right positions
+    const annotated: { type: 'correct' | 'typo' | 'extra' | 'missing'; word: string; correction?: string }[] = [];
+    let ci = 0;
+    let si = 0;
+    let matchIdx = 0;
+
+    while (ci < correctWords.length || si < studentWords.length) {
+      // If current match aligns ci and si
+      if (matchIdx < matches.length && matches[matchIdx].ci === ci && matches[matchIdx].si === si) {
+        annotated.push({ type: 'correct', word: studentWords[si] });
+        ci++; si++; matchIdx++;
+      } else if (matchIdx < matches.length && matches[matchIdx].si === si && matches[matchIdx].ci > ci) {
+        // Missing correct words before this match
+        while (ci < matches[matchIdx].ci) {
+          if (!pairedC.has(ci)) {
+            annotated.push({ type: 'missing', word: correctWords[ci] });
+          }
+          ci++;
+        }
+      } else if (si < studentWords.length && !matchedS.has(si)) {
+        // Student word not matched
+        if (typoMap.has(si)) {
+          annotated.push({ type: 'typo', word: studentWords[si], correction: correctWords[typoMap.get(si)!] });
+        } else {
+          annotated.push({ type: 'extra', word: studentWords[si] });
+        }
+        si++;
+      } else if (ci < correctWords.length && !matchedC.has(ci)) {
+        if (!pairedC.has(ci)) {
+          annotated.push({ type: 'missing', word: correctWords[ci] });
+        }
+        ci++;
+      } else {
+        // Advance whichever is behind
+        if (si < studentWords.length) {
+          if (matchedS.has(si)) {
+            annotated.push({ type: 'correct', word: studentWords[si] });
+            // find the match and advance ci too
+            const m = matches.find(m => m.si === si);
+            if (m) { ci = m.ci + 1; matchIdx = matches.indexOf(m) + 1; }
+            si++;
+          } else { si++; }
+        } else if (ci < correctWords.length) {
+          if (!matchedC.has(ci) && !pairedC.has(ci)) {
+            annotated.push({ type: 'missing', word: correctWords[ci] });
+          }
+          ci++;
+        } else {
+          break;
+        }
+      }
+    }
 
     return (
-      <div className="space-y-2 text-sm" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
+      <div className="space-y-3 text-sm" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
         <div>
           <span className="text-muted-foreground text-xs block mb-0.5">正確答案：</span>
-          <p className="text-green-700 dark:text-green-400 leading-relaxed">{correct}</p>
+          <p className="text-green-700 dark:text-green-400 leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>{correct}</p>
         </div>
         <div>
-          <span className="text-muted-foreground text-xs block mb-0.5">你的答案：</span>
-          <p className="text-foreground leading-relaxed">{student || "(未作答)"}</p>
-        </div>
-        {missingWords.length > 0 && (
-          <div>
-            <span className="text-muted-foreground text-xs block mb-0.5">漏寫/錯寫的詞：</span>
-            <p className="text-red-600 dark:text-red-400 leading-relaxed">
-              {missingWords.map((w, i) => (
-                <span key={i} className="inline-block bg-red-50 dark:bg-red-950/30 rounded px-1 py-0.5 mr-1 mb-1">{w}</span>
-              ))}
-            </p>
+          <span className="text-muted-foreground text-xs block mb-0.5">批改結果：</span>
+          <div className="leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>
+            {annotated.map((a, i) => {
+              if (a.type === 'correct') return <span key={i}>{a.word} </span>;
+              if (a.type === 'typo') return (
+                <span key={i}>
+                  <span className="text-red-600 dark:text-red-400 line-through decoration-2">{a.word}</span>
+                  <span className="text-green-600 dark:text-green-400 font-medium">{' '}{a.correction}{' '}</span>
+                </span>
+              );
+              if (a.type === 'extra') return (
+                <span key={i} className="text-gray-400 line-through decoration-2">{a.word} </span>
+              );
+              if (a.type === 'missing') return (
+                <span key={i} className="text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded px-0.5 text-xs font-medium">[{a.word}] </span>
+              );
+              return null;
+            })}
           </div>
-        )}
-        {extraWords.length > 0 && (
-          <div>
-            <span className="text-muted-foreground text-xs block mb-0.5">多寫的詞：</span>
-            <p className="text-orange-600 dark:text-orange-400 leading-relaxed">
-              {extraWords.map((w, i) => (
-                <span key={i} className="inline-block bg-orange-50 dark:bg-orange-950/30 rounded px-1 py-0.5 mr-1 mb-1 line-through">{w}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground text-xs block mb-0.5">你的原文：</span>
+          <p className="text-foreground leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>{student || "(未作答)"}</p>
+        </div>
+        {scoreDetails && scoreDetails.length > 0 && (
+          <div className="border-t border-muted pt-2">
+            <span className="text-muted-foreground text-xs block mb-1">扣分明細：</span>
+            <ul className="text-xs space-y-0.5">
+              {scoreDetails.map((d, i) => (
+                <li key={i} className="text-red-600 dark:text-red-400">- {d}</li>
               ))}
-            </p>
+            </ul>
           </div>
         )}
       </div>
@@ -368,21 +463,7 @@ export default function ThankYou() {
                     <BookText className="w-4 h-4 text-muted-foreground" />
                     <p className="text-sm text-muted-foreground font-medium">答案對照：</p>
                   </div>
-                  {renderWordDiff(result.correctSentence, result.studentSentence)}
-                  {result.feedback && result.feedback !== "完全正確！非常好！" && (
-                    <div className="mt-2 pt-2 border-t border-muted" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
-                      <div className="flex items-start gap-1.5">
-                        <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                        <div className="text-xs leading-relaxed space-y-0.5">
-                          {result.feedback.split(/[；;]/).map((part, pi) => {
-                            const trimmed = part.trim();
-                            if (!trimmed) return null;
-                            return <div key={pi} className="text-foreground">- {trimmed}</div>;
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  {renderWordDiff(result.correctSentence, result.studentSentence, result.scoreDetails)}
                 </div>
               )}
             </>
