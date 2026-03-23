@@ -33,6 +33,9 @@ interface ScoreEmailParams {
   details?: string;
   sentenceDetails?: SentenceDetail[];
   vocabDetails?: VocabDetail[];
+  correctText?: string;
+  studentText?: string;
+  scoreDetails?: string[];
 }
 
 function mark(ok: boolean) { return ok ? " [CORRECT]" : " [WRONG]"; }
@@ -127,6 +130,44 @@ function buildVocabReport(params: ScoreEmailParams): string {
   return lines.join("\n");
 }
 
+function buildPassageReport(params: ScoreEmailParams): string {
+  const lines: string[] = [];
+  const pct = Math.round((params.totalScore / params.maxScore) * 100);
+
+  lines.push(`${params.studentName} 同學你好，`);
+  lines.push("");
+  lines.push(`你的「${params.examTitle}」成績報告如下：`);
+  lines.push("");
+  lines.push(`總得分：${params.totalScore} / ${params.maxScore} (${pct}%)`);
+  lines.push("");
+  lines.push("━━━ 正確答案 ━━━");
+  lines.push(params.correctText!);
+  lines.push("");
+  lines.push("━━━ 你的答案 ━━━");
+  lines.push(params.studentText || "(未作答)");
+
+  if (params.scoreDetails && params.scoreDetails.length > 0) {
+    lines.push("");
+    lines.push("━━━ 扣分明細 ━━━");
+    for (const d of params.scoreDetails) {
+      lines.push(`  - ${d}`);
+    }
+  }
+
+  if (pct < 60) {
+    lines.push("");
+    lines.push("━━━ 學習建議 ━━━");
+    lines.push("- 整體得分率偏低，建議完整重讀課文後再次默寫練習");
+    lines.push("- 拼寫錯誤的單詞建議抄寫5遍加深記憶");
+  }
+
+  lines.push("");
+  lines.push(`提交時間：${new Date().toLocaleString("zh-TW", { timeZone: "Asia/Macau" })}`);
+  lines.push("");
+  lines.push("此郵件由系統自動發送，請勿回覆。");
+  return lines.join("\n");
+}
+
 function buildSimpleReport(params: ScoreEmailParams): string {
   return [
     `${params.studentName} 同學你好，`,
@@ -157,7 +198,9 @@ export async function sendScoreEmail(params: ScoreEmailParams) {
   });
 
   let text: string;
-  if (params.sentenceDetails && params.sentenceDetails.length > 0) {
+  if (params.correctText && params.studentText !== undefined) {
+    text = buildPassageReport(params);
+  } else if (params.sentenceDetails && params.sentenceDetails.length > 0) {
     text = buildSentenceReport(params);
   } else if (params.vocabDetails && params.vocabDetails.length > 0) {
     text = buildVocabReport(params);

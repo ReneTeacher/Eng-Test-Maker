@@ -1706,6 +1706,9 @@ STRICT RULES:
           examTitle: exam.title,
           totalScore,
           maxScore: 100,
+          correctText: exam.correctText,
+          studentText,
+          scoreDetails: scoreResult.details,
         }).catch(err => console.error("Email send error:", err));
       }
 
