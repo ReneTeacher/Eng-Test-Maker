@@ -1366,7 +1366,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             role: "user",
             content: [
               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-              { type: "text", text: "請逐字辨識這張手寫英文圖片的內容，只返回辨識到的純文字，保留原有換行，不要添加任何說明或解釋。" },
+              { type: "text", text: "Please transcribe this handwritten English image EXACTLY as written, character by character. Do NOT correct spelling, grammar, or punctuation. Do NOT add or remove any words. Preserve original line breaks. Return ONLY the transcribed text with no explanation." },
             ],
           }],
           stream: false,
@@ -1597,161 +1597,6 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         return;
       }
 
-      // For passage exams, grade sentence-by-sentence using stored sentences
-      if (exam.examType === "passage" && sentences.length > 0) {
-        const correctTexts = sentences.map(s => s.correctSentence);
-        let matchedStudentSentences: string[];
-        try {
-          matchedStudentSentences = await aiMatchStudentToSentences(studentText, correctTexts);
-        } catch {
-          console.log("AI matching failed, using fallback sequential match");
-          matchedStudentSentences = fallbackSequentialMatch(studentText, sentences);
-        }
-
-        let totalScore = 0;
-        let maxScore = 0;
-        const sentenceResults: { sentenceId: number; earned: number; max: number; feedback: string }[] = [];
-        const scoringResults: { sentence: typeof sentences[0]; studentSentence: string; scoreResult: ReturnType<typeof computeSentenceScore> }[] = [];
-
-        for (let i = 0; i < sentences.length; i++) {
-          const sentence = sentences[i];
-          maxScore += sentence.maxScore;
-          const studentSentence = matchedStudentSentences[i] || "";
-          const scoreResult = computeSentenceScore(sentence.correctSentence, studentSentence, sentence.maxScore);
-          totalScore += scoreResult.earned;
-          scoringResults.push({ sentence, studentSentence, scoreResult });
-        }
-
-        const feedbackPromises = scoringResults.map(async ({ sentence, studentSentence, scoreResult }) => {
-          let sentenceFeedback = "";
-          if (scoreResult.details.length === 0) {
-            sentenceFeedback = "完全正確！非常好！";
-          } else {
-            sentenceFeedback = scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
-            try {
-              const prompt = `你是英語背默考試的老師。以下是一位學生的背默結果，請根據扣分明細，用繁體中文給出簡短、有建設性的學習建議（不要重複扣分明細，只給建議）。控制在40字以內。
-
-正確答案：${sentence.correctSentence}
-學生答案：${studentSentence}
-扣分明細：${scoreResult.details.join("；")}
-
-只回覆建議文字，不要JSON。`;
-
-              const apiKey = process.env.MINIMAX_API_KEY;
-              if (apiKey) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                try {
-                  const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
-                    method: 'POST',
-                    headers: {
-                      'Authorization': `Bearer ${apiKey}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: 'abab6.5s-chat',
-                      messages: [{ role: 'user', content: prompt }],
-                      max_tokens: 200,
-                      temperature: 0.3,
-                    }),
-                    signal: controller.signal,
-                  });
-                  clearTimeout(timeoutId);
-                  const data = await response.json();
-                  const aiAdvice = (data.choices?.[0]?.message?.content || "").trim();
-                  if (aiAdvice && aiAdvice.length < 100) {
-                    sentenceFeedback += `。建議：${aiAdvice}`;
-                  }
-                } catch (fetchError: any) {
-                  console.error("AI feedback fetch error:", fetchError?.message || fetchError);
-                }
-              }
-            } catch (aiErr: any) {
-              console.error("AI feedback error:", aiErr?.message || aiErr);
-            }
-          }
-          return {
-            sentenceId: sentence.id,
-            earned: scoreResult.earned,
-            max: sentence.maxScore,
-            feedback: sentenceFeedback,
-            studentSentence,
-          };
-        });
-
-        const resolvedResults = await Promise.all(feedbackPromises);
-        for (const r of resolvedResults) {
-          sentenceResults.push(r);
-        }
-
-        const finalTotalScore = Math.round(totalScore);
-
-        const submission = await storage.createTextSubmission({
-          examId,
-          studentName,
-          studentNumber,
-          originalClass,
-          mixedClass,
-          studentText,
-          totalScore: finalTotalScore,
-          maxScore,
-          feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("; "),
-          studentEmail,
-        });
-
-        const answerDetails = sentenceResults.map(r => ({
-          submissionId: submission.id,
-          sentenceId: r.sentenceId,
-          studentSentence: (r as any).studentSentence || "",
-          earnedScore: Math.round(r.earned),
-          feedback: r.feedback,
-        }));
-        await storage.createTextAnswerDetails(answerDetails);
-
-        let earnedBadges: string[] = [];
-        try {
-          const prevRecords = await getStudentSubmissions(studentName, studentNumber, originalClass);
-          const prevBadgeIds = computeBadges(prevRecords.filter(r => new Date(r.submittedAt).getTime() < Date.now() - 5000));
-          const allBadgeIds = computeBadges(prevRecords);
-          earnedBadges = allBadgeIds.filter(id => !prevBadgeIds.includes(id));
-        } catch (e) {
-          console.error("Badge computation error:", e);
-        }
-
-        if (studentEmail) {
-          sendScoreEmail({
-            to: studentEmail,
-            studentName,
-            examTitle: exam.title,
-            totalScore: finalTotalScore,
-            maxScore,
-            sentenceDetails: sentenceResults.map((r, i) => ({
-              index: i + 1,
-              correct: sentences.find(s => s.id === r.sentenceId)?.correctSentence || "",
-              student: (r as any).studentSentence || "",
-              earned: Math.round(r.earned),
-              max: r.max,
-              feedback: r.feedback || "",
-            })),
-          }).catch(err => console.error("Email send error:", err));
-        }
-
-        res.json({
-          totalScore: finalTotalScore,
-          maxScore,
-          earnedBadges,
-          sentenceResults: sentenceResults.map((r, i) => ({
-            sentenceId: r.sentenceId,
-            earned: Math.round(r.earned),
-            max: r.max,
-            studentSentence: (r as any).studentSentence || "",
-            correctSentence: sentences.find(s => s.id === r.sentenceId)?.correctSentence || "",
-            feedback: r.feedback || "",
-          })),
-          studentName,
-        });
-        return;
-      }
 
       if (!exam.correctText) {
         res.status(400).json({ message: "Exam has no correct text configured" });
@@ -1803,6 +1648,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         maxScore: 100,
         earnedBadges,
         studentName,
+        correctSentence: exam.correctText,
+        studentSentence: studentText,
+        feedback,
       });
     } catch (error) {
       console.error("Text submission error:", error);

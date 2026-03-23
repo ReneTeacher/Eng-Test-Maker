@@ -50,6 +50,9 @@ interface SubmissionResult {
   sentenceResults?: SentenceResult[];
   questionResults?: QuestionResult[];
   earnedBadges?: string[];
+  correctSentence?: string;
+  studentSentence?: string;
+  feedback?: string;
 }
 
 export default function ThankYou() {
@@ -356,6 +359,30 @@ export default function ThankYou() {
                       })()}
                     </p>
                   </div>
+                </div>
+              )}
+
+              {isTextDictation && !result.sentenceResults?.length && result.correctSentence && result.studentSentence && (
+                <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <BookText className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground font-medium">答案對照：</p>
+                  </div>
+                  {renderWordDiff(result.correctSentence, result.studentSentence)}
+                  {result.feedback && result.feedback !== "完全正確！非常好！" && (
+                    <div className="mt-2 pt-2 border-t border-muted" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                      <div className="flex items-start gap-1.5">
+                        <Lightbulb className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                        <div className="text-xs leading-relaxed space-y-0.5">
+                          {result.feedback.split(/[；;]/).map((part, pi) => {
+                            const trimmed = part.trim();
+                            if (!trimmed) return null;
+                            return <div key={pi} className="text-foreground">- {trimmed}</div>;
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
