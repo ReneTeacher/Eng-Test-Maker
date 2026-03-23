@@ -554,6 +554,7 @@ export default function StudentExam() {
                         <Textarea
                           value={textAnswer}
                           onChange={(e) => setTextAnswer(e.target.value)}
+                          onPaste={handlePaste}
                           autoComplete="off"
                           autoCorrect="off"
                           autoCapitalize="off"
