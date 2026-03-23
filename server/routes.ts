@@ -1322,14 +1322,18 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     let totalDeductions = 0;
     const details: string[] = [];
 
-    for (const t of typos) {
-      const d = t.dist === 1 ? 0.5 : 1;
-      totalDeductions += d;
-      details.push(`拼錯 "${t.student}"→"${t.correct}" -${d}分`);
-    }
-    for (const bm of badlyMisspelled) {
+    // Deduplicate typos by correct word (same misspelling only penalized once)
+    const seenCorrect = new Set<string>();
+    const allMisspelled = [
+      ...typos.map(t => ({ student: t.student, correct: t.correct })),
+      ...badlyMisspelled,
+    ];
+    for (const m of allMisspelled) {
+      const key = m.correct.toLowerCase();
+      if (seenCorrect.has(key)) continue;
+      seenCorrect.add(key);
       totalDeductions += 1;
-      details.push(`拼錯 "${bm.student}"→"${bm.correct}" -1分`);
+      details.push(`拼錯 "${m.student}"→"${m.correct}" -1分`);
     }
     if (missingWords.length > 0) {
       const d = missingWords.length;
@@ -1388,6 +1392,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             content: [
               { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
               { type: "text", text: `Transcribe this handwritten English image EXACTLY as the student wrote it.
+
+IMPORTANT: This is a dictation answer sheet. The page may have PRINTED headers at the top such as "Junior Three Dictation", "Name:", "Class:", "No:", "Date:", "Score:" or similar. IGNORE all printed/typed text completely. Only transcribe the student's HANDWRITTEN content.
 
 STRICT RULES:
 - Copy EVERY character exactly as written, including wrong spelling and wrong capitalization.

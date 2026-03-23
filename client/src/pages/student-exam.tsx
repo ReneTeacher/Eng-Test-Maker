@@ -59,6 +59,7 @@ export default function StudentExam() {
   const [isOcring, setIsOcring] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [submitCountdown, setSubmitCountdown] = useState(5);
 
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
@@ -202,6 +203,17 @@ export default function StudentExam() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [isSubmitting, toast]);
+
+  // 5-second countdown when confirm dialog opens
+  useEffect(() => {
+    if (!showConfirmDialog) {
+      setSubmitCountdown(5);
+      return;
+    }
+    if (submitCountdown <= 0) return;
+    const timer = setTimeout(() => setSubmitCountdown(prev => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [showConfirmDialog, submitCountdown]);
 
   const hasSentences = activeExam && 'sentences' in activeExam && activeExam.sentences?.length > 0;
   const isImageMode = isPassageExam && 'submissionMode' in (activeExam || {}) && (activeExam as ExamWithSentences)?.submissionMode === "image";
@@ -576,7 +588,7 @@ export default function StudentExam() {
               )}
 
               <Button type="button" onClick={handleSubmit as any} className="w-full h-12 text-lg" disabled={isSubmitting} data-testid="button-submit-exam">
-                {isOcring ? "正在辨識圖片..." : isSubmitting ? "正在提交..." : "提交測驗"}
+                {isOcring ? "正在分析圖片文字..." : isSubmitting ? "正在提交..." : isImageMode && !ocrText ? "分析圖片文字" : "交卷"}
               </Button>
             </form>
           </CardContent>
@@ -590,14 +602,23 @@ export default function StudentExam() {
               <ShieldAlert className="w-5 h-5 text-yellow-500" />
               確認交卷
             </AlertDialogTitle>
-            <AlertDialogDescription className="text-base">
-              你確定要提交嗎？提交後將無法修改答案。請確認所有題目已作答完畢。
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-base">
+                <p>交卷後不能修改，會直接看到分數。請確認所有答案已檢查完畢。</p>
+                {studentInfo?.studentEmail && (
+                  <p className="text-sm text-muted-foreground">成績報告將發送至 <span className="font-medium">{studentInfo.studentEmail}</span></p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-submit">返回檢查</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmedSubmit} data-testid="button-confirm-submit">
-              確認提交
+            <AlertDialogAction
+              onClick={handleConfirmedSubmit}
+              disabled={submitCountdown > 0}
+              data-testid="button-confirm-submit"
+            >
+              {submitCountdown > 0 ? `請等待 (${submitCountdown}s)` : "確認提交"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
