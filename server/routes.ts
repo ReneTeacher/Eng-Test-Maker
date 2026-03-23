@@ -1367,9 +1367,15 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       return;
     }
 
-    const { imageBase64 } = req.body;
-    if (!imageBase64 || typeof imageBase64 !== "string") {
-      res.status(400).json({ message: "Missing imageBase64" });
+    const { images, imageBase64 } = req.body;
+    // Support both single image (legacy) and multiple images
+    const imageList: string[] = Array.isArray(images) ? images : (imageBase64 ? [imageBase64] : []);
+    if (imageList.length === 0 || imageList.some(img => typeof img !== "string")) {
+      res.status(400).json({ message: "Missing image data" });
+      return;
+    }
+    if (imageList.length > 3) {
+      res.status(400).json({ message: "最多只能上傳 3 張圖片" });
       return;
     }
 
@@ -1378,7 +1384,42 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-      // Poe OpenAI-compatible API with base64 image
+      const isMultiPage = imageList.length > 1;
+      const imageContent = imageList.map(img => ({
+        type: "image_url" as const,
+        image_url: { url: `data:image/jpeg;base64,${img}` },
+      }));
+
+      const prompt = isMultiPage
+        ? `You are given ${imageList.length} photos of a student's handwritten dictation answer sheet. The pages may be in any order.
+
+STEP 1: Determine the correct reading order by looking at the content continuity (sentences should flow naturally from one page to the next).
+STEP 2: Transcribe ALL pages in the correct order as one continuous text.
+
+IMPORTANT: This is a dictation answer sheet. Pages may have PRINTED headers at the top such as "Junior Three Dictation", "Name:", "Class:", "No:", "Date:", "Score:" or similar. IGNORE all printed/typed text completely. Only transcribe the student's HANDWRITTEN content.
+
+STRICT RULES:
+- Copy EVERY character exactly as written, including wrong spelling and wrong capitalization.
+- If the student wrote "becuse", output "becuse" — do NOT correct it to "because".
+- If the student wrote "the" in lowercase where uppercase is expected, keep it lowercase.
+- Preserve ALL original punctuation exactly as written — do not add, remove, or change any comma, period, apostrophe, etc.
+- If a punctuation mark is missing, do NOT add it.
+- Preserve original line breaks as they appear on each page.
+- Return ONLY the raw transcribed text in correct page order. No titles, labels, page numbers, explanations, or markdown formatting.`
+        : `Transcribe this handwritten English image EXACTLY as the student wrote it.
+
+IMPORTANT: This is a dictation answer sheet. The page may have PRINTED headers at the top such as "Junior Three Dictation", "Name:", "Class:", "No:", "Date:", "Score:" or similar. IGNORE all printed/typed text completely. Only transcribe the student's HANDWRITTEN content.
+
+STRICT RULES:
+- Copy EVERY character exactly as written, including wrong spelling and wrong capitalization.
+- If the student wrote "becuse", output "becuse" — do NOT correct it to "because".
+- If the student wrote "the" in lowercase where uppercase is expected, keep it lowercase.
+- Preserve ALL original punctuation exactly as written — do not add, remove, or change any comma, period, apostrophe, etc.
+- If a punctuation mark is missing, do NOT add it.
+- Preserve original line breaks as they appear on the page.
+- Return ONLY the raw transcribed text. No titles, labels, explanations, or markdown formatting.`;
+
+      // Poe OpenAI-compatible API with base64 image(s)
       const response = await fetch("https://api.poe.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -1390,19 +1431,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           messages: [{
             role: "user",
             content: [
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-              { type: "text", text: `Transcribe this handwritten English image EXACTLY as the student wrote it.
-
-IMPORTANT: This is a dictation answer sheet. The page may have PRINTED headers at the top such as "Junior Three Dictation", "Name:", "Class:", "No:", "Date:", "Score:" or similar. IGNORE all printed/typed text completely. Only transcribe the student's HANDWRITTEN content.
-
-STRICT RULES:
-- Copy EVERY character exactly as written, including wrong spelling and wrong capitalization.
-- If the student wrote "becuse", output "becuse" — do NOT correct it to "because".
-- If the student wrote "the" in lowercase where uppercase is expected, keep it lowercase.
-- Preserve ALL original punctuation exactly as written — do not add, remove, or change any comma, period, apostrophe, etc.
-- If a punctuation mark is missing, do NOT add it.
-- Preserve original line breaks as they appear on the page.
-- Return ONLY the raw transcribed text. No titles, labels, explanations, or markdown formatting.` },
+              ...imageContent,
+              { type: "text", text: prompt },
             ],
           }],
           stream: false,

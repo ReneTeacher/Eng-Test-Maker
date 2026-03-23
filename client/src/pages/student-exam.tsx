@@ -53,8 +53,8 @@ export default function StudentExam() {
   const [warningCount, setWarningCount] = useState(0);
   const [showCheatAlert, setShowCheatAlert] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
   const [ocrText, setOcrText] = useState<string | null>(null);
   const [isOcring, setIsOcring] = useState(false);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -249,9 +249,21 @@ export default function StudentExam() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImageFile(file);
+    if (imageFiles.length >= 3) {
+      toast({ title: "最多只能上傳 3 張圖片", variant: "destructive" });
+      return;
+    }
+    setImageFiles(prev => [...prev, file]);
+    setImagePreviewUrls(prev => [...prev, URL.createObjectURL(file)]);
     setOcrText(null);
-    setImagePreviewUrl(URL.createObjectURL(file));
+    // Reset input so same file can be selected again
+    e.target.value = "";
+  };
+
+  const removeImage = (index: number) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== index));
+    setImagePreviewUrls(prev => prev.filter((_, i) => i !== index));
+    setOcrText(null);
   };
 
   const handleAnswerChange = (questionId: number, field: keyof VocabAnswer, value: string) => {
@@ -286,7 +298,7 @@ export default function StudentExam() {
 
     if (activeExam.examType === "text" || activeExam.examType === "passage") {
       if (isImageMode) {
-        if (!imageFile) {
+        if (imageFiles.length === 0) {
           toast({ title: "請先上傳手寫圖片", variant: "destructive" });
           return;
         }
@@ -296,7 +308,7 @@ export default function StudentExam() {
         }
         setIsOcring(true);
         try {
-          const base64 = await compressImage(imageFile);
+          const base64List = await Promise.all(imageFiles.map(f => compressImage(f)));
           const abortCtrl = new AbortController();
           const ocrTimeout = setTimeout(() => abortCtrl.abort(), 30000);
           let resp: Response;
@@ -304,7 +316,7 @@ export default function StudentExam() {
             resp = await fetch("/api/ocr-passage", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ imageBase64: base64 }),
+              body: JSON.stringify({ images: base64List }),
               signal: abortCtrl.signal,
             });
           } finally {
@@ -498,21 +510,37 @@ export default function StudentExam() {
                   </div>
                 ) : isImageMode ? (
                   <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">請用手寫完整課文後，拍照或選擇圖片上傳。系統會自動辨識文字並評分。</p>
+                    <p className="text-sm text-muted-foreground">請用手寫完整課文後，拍照或選擇圖片上傳（最多 3 張）。系統會自動辨識文字並評分。</p>
                     <input ref={galleryInputRef} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
                     <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" onChange={handleImageChange} className="hidden" />
-                    <div className="flex gap-3">
-                      <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => galleryInputRef.current?.click()}>
-                        <ImageIcon className="w-4 h-4 mr-2" />
-                        選擇相簿/文件
-                      </Button>
-                      <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => cameraInputRef.current?.click()}>
-                        <Camera className="w-4 h-4 mr-2" />
-                        拍照
-                      </Button>
-                    </div>
-                    {imagePreviewUrl && (
-                      <img src={imagePreviewUrl} alt="上傳預覽" className="max-h-48 rounded border object-contain" />
+                    {imageFiles.length < 3 && (
+                      <div className="flex gap-3">
+                        <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => galleryInputRef.current?.click()}>
+                          <ImageIcon className="w-4 h-4 mr-2" />
+                          選擇相簿/文件
+                        </Button>
+                        <Button type="button" variant="outline" className="flex-1 h-11" onClick={() => cameraInputRef.current?.click()}>
+                          <Camera className="w-4 h-4 mr-2" />
+                          拍照
+                        </Button>
+                      </div>
+                    )}
+                    {imagePreviewUrls.length > 0 && (
+                      <div className="flex gap-2 flex-wrap">
+                        {imagePreviewUrls.map((url, i) => (
+                          <div key={i} className="relative">
+                            <img src={url} alt={`圖片 ${i + 1}`} className="max-h-36 rounded border object-contain" />
+                            <button
+                              type="button"
+                              onClick={() => removeImage(i)}
+                              className="absolute -top-2 -right-2 w-5 h-5 bg-destructive text-destructive-foreground rounded-full text-xs flex items-center justify-center"
+                            >
+                              ×
+                            </button>
+                            <span className="absolute bottom-1 left-1 bg-black/60 text-white text-xs px-1 rounded">{i + 1}</span>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {isOcring && (
                       <p className="text-sm text-muted-foreground flex items-center gap-2">
