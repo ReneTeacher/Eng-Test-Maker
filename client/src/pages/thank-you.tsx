@@ -165,79 +165,49 @@ export default function ThankYou() {
       pairedS.add(tc.si);
     }
 
-    // Build teacher-annotated student text, tracking original student word index for line breaks
-    const annotated: { type: 'correct' | 'typo' | 'extra' | 'missing'; word: string; correction?: string; studentIdx?: number }[] = [];
-    let ci = 0;
-    let si = 0;
-    let matchIdx = 0;
-
-    while (ci < correctWords.length || si < studentWords.length) {
-      if (matchIdx < matches.length && matches[matchIdx].ci === ci && matches[matchIdx].si === si) {
-        annotated.push({ type: 'correct', word: studentWords[si], studentIdx: si });
-        ci++; si++; matchIdx++;
-      } else if (matchIdx < matches.length && matches[matchIdx].si === si && matches[matchIdx].ci > ci) {
-        while (ci < matches[matchIdx].ci) {
-          if (!pairedC.has(ci)) {
-            annotated.push({ type: 'missing', word: correctWords[ci] });
-          }
-          ci++;
-        }
-      } else if (si < studentWords.length && !matchedS.has(si)) {
-        if (typoMap.has(si)) {
-          annotated.push({ type: 'typo', word: studentWords[si], correction: correctWords[typoMap.get(si)!], studentIdx: si });
-        } else {
-          annotated.push({ type: 'extra', word: studentWords[si], studentIdx: si });
-        }
-        si++;
-      } else if (ci < correctWords.length && !matchedC.has(ci)) {
-        if (!pairedC.has(ci)) {
-          annotated.push({ type: 'missing', word: correctWords[ci] });
-        }
-        ci++;
+    // Build per-student-word annotation map
+    const wordStatus = new Map<number, { type: 'correct' | 'typo' | 'extra'; correction?: string }>();
+    for (let si = 0; si < studentWords.length; si++) {
+      if (matchedS.has(si)) {
+        wordStatus.set(si, { type: 'correct' });
+      } else if (typoMap.has(si)) {
+        wordStatus.set(si, { type: 'typo', correction: correctWords[typoMap.get(si)!] });
       } else {
-        if (si < studentWords.length) {
-          if (matchedS.has(si)) {
-            annotated.push({ type: 'correct', word: studentWords[si], studentIdx: si });
-            const m = matches.find(m => m.si === si);
-            if (m) { ci = m.ci + 1; matchIdx = matches.indexOf(m) + 1; }
-            si++;
-          } else { si++; }
-        } else if (ci < correctWords.length) {
-          if (!matchedC.has(ci) && !pairedC.has(ci)) {
-            annotated.push({ type: 'missing', word: correctWords[ci] });
-          }
-          ci++;
-        } else {
-          break;
-        }
+        wordStatus.set(si, { type: 'extra' });
       }
     }
 
-    // Render annotated words, inserting line breaks where the student's original text had them
+    // Collect missing words (correct words not matched and not paired as typos)
+    const missingWords = correctWords.filter((_, ci) => !matchedC.has(ci) && !pairedC.has(ci));
+
+    // Render student text line-by-line preserving original format
     const renderAnnotated = () => {
-      const elements: React.ReactNode[] = [];
-      for (let i = 0; i < annotated.length; i++) {
-        const a = annotated[i];
-        if (a.type === 'correct') {
-          elements.push(<span key={i}>{a.word} </span>);
-        } else if (a.type === 'typo') {
-          elements.push(
-            <span key={i}>
-              <span className="text-red-600 dark:text-red-400 line-through decoration-2">{a.word}</span>
-              <span className="text-green-600 dark:text-green-400 font-medium">{' '}{a.correction}{' '}</span>
-            </span>
-          );
-        } else if (a.type === 'extra') {
-          elements.push(<span key={i} className="text-gray-400 line-through decoration-2">{a.word} </span>);
-        } else if (a.type === 'missing') {
-          elements.push(<span key={i} className="text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded px-0.5 text-xs font-medium">[{a.word}] </span>);
+      let wordIdx = 0;
+      return studentLines.map((line, li) => {
+        const lineWords = line.trim().split(/\s+/).filter(w => w.length > 0);
+        const lineElements: React.ReactNode[] = [];
+        for (let wi = 0; wi < lineWords.length; wi++) {
+          const status = wordStatus.get(wordIdx);
+          if (!status || status.type === 'correct') {
+            lineElements.push(<span key={wordIdx}>{studentWords[wordIdx]} </span>);
+          } else if (status.type === 'typo') {
+            lineElements.push(
+              <span key={wordIdx}>
+                <span className="text-red-600 dark:text-red-400 line-through decoration-2">{studentWords[wordIdx]}</span>
+                <span className="text-green-600 dark:text-green-400 font-medium">{' '}{status.correction}{' '}</span>
+              </span>
+            );
+          } else if (status.type === 'extra') {
+            lineElements.push(<span key={wordIdx} className="text-gray-400 line-through decoration-2">{studentWords[wordIdx]} </span>);
+          }
+          wordIdx++;
         }
-        // Insert line break if this annotated item came from a student word at a line boundary
-        if (a.studentIdx !== undefined && lineBreakAfter.has(a.studentIdx)) {
-          elements.push(<br key={`br-${i}`} />);
-        }
-      }
-      return elements;
+        return (
+          <div key={li}>
+            {lineElements.length > 0 ? lineElements : <br />}
+          </div>
+        );
+      });
     };
 
     return (
@@ -251,10 +221,13 @@ export default function ThankYou() {
           <div className="leading-relaxed">
             {renderAnnotated()}
           </div>
-        </div>
-        <div>
-          <span className="text-muted-foreground text-xs block mb-0.5">你的原文：</span>
-          <p className="text-foreground leading-relaxed" style={{ whiteSpace: "pre-wrap" }}>{student || "(未作答)"}</p>
+          {missingWords.length > 0 && (
+            <div className="mt-1.5">
+              <span className="text-red-500 dark:text-red-400 text-xs">漏寫：{missingWords.map((w, i) => (
+                <span key={i} className="bg-red-50 dark:bg-red-950/30 rounded px-0.5 mx-0.5 font-medium">{w}</span>
+              ))}</span>
+            </div>
+          )}
         </div>
         {scoreDetails && scoreDetails.length > 0 && (
           <div className="border-t border-muted pt-2">
