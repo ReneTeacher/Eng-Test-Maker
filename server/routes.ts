@@ -1758,6 +1758,29 @@ STRICT RULES:
         return;
       }
 
+      // Text/Passage exams use textSubmissions table
+      const isTextType = exam.examType === "text" || exam.examType === "passage";
+      if (isTextType) {
+        const textSubs = await storage.getTextSubmissionsByExamId(exam.id);
+        const headers = ["Name", "Student Number", "Original Class", "Mixed Class", "Student Text", "Total Score", "Max Score", "Feedback", "Timestamp"];
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet(exam.title.substring(0, 31));
+        worksheet.addRow(headers);
+        for (const sub of textSubs) {
+          worksheet.addRow([
+            sub.studentName, sub.studentNumber, sub.originalClass, sub.mixedClass,
+            sub.studentText, sub.totalScore, sub.maxScore || 100, sub.feedback || "",
+            new Date(sub.submittedAt).toLocaleString()
+          ]);
+        }
+        worksheet.columns = headers.map(h => ({ width: Math.max(h.length, 15) }));
+        const arrayBuffer = await workbook.xlsx.writeBuffer();
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="${exam.title}-results.xlsx"`);
+        res.send(Buffer.from(arrayBuffer));
+        return;
+      }
+
       // Sort questions once for consistency
       const sortedQuestions = [...questions].sort((a, b) => a.wordOrder - b.wordOrder);
       
