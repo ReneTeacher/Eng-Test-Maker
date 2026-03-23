@@ -277,13 +277,26 @@ export default function StudentExam() {
         setIsOcring(true);
         try {
           const base64 = await compressImage(imageFile);
-          const resp = await apiRequest("POST", "/api/ocr-passage", { imageBase64: base64 });
-          const data = await resp.json();
-          if (!resp.ok) throw new Error(data.message || "OCR 失敗");
+          const abortCtrl = new AbortController();
+          const ocrTimeout = setTimeout(() => abortCtrl.abort(), 30000);
+          let resp: Response;
+          try {
+            resp = await fetch("/api/ocr-passage", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ imageBase64: base64 }),
+              signal: abortCtrl.signal,
+            });
+          } finally {
+            clearTimeout(ocrTimeout);
+          }
+          const data = await resp!.json();
+          if (!resp!.ok) throw new Error(data.message || "OCR 失敗");
           setOcrText(data.recognizedText);
           setTextAnswer(data.recognizedText);
         } catch (err: any) {
-          toast({ title: err.message || "圖片辨識失敗，請重試", variant: "destructive" });
+          const msg = err?.name === "AbortError" ? "圖片辨識逾時，請重試" : (err.message || "圖片辨識失敗，請重試");
+          toast({ title: msg, variant: "destructive" });
           setIsOcring(false);
           return;
         }

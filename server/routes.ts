@@ -1351,7 +1351,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     try {
       const botName = process.env.POE_BOT_NAME || "Claude-3.7-Sonnet";
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000);
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       // Poe OpenAI-compatible API with base64 image
       const response = await fetch("https://api.poe.com/v1/chat/completions", {
