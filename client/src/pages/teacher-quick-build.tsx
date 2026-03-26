@@ -37,6 +37,7 @@ export default function TeacherQuickBuild() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [uploadingMaterialsFor, setUploadingMaterialsFor] = useState<number | null>(null);
   const materialInputRef = useRef<HTMLInputElement>(null);
+  const extractInputRef = useRef<HTMLInputElement>(null);
   const [editingSheetId, setEditingSheetId] = useState<number | null>(null);
 
   const { data: sheets = [] } = useQuery<AnswerSheetSession[]>({
@@ -283,14 +284,22 @@ export default function TeacherQuickBuild() {
     }
   };
 
-  const handleAiExtract = async () => {
-    if (!paperLink.trim()) {
-      toast({ title: "請先輸入試卷連結", variant: "destructive" });
-      return;
-    }
+  const handleAiExtract = async (files: FileList) => {
     setIsExtracting(true);
     try {
-      const resp = await apiRequest("POST", "/api/answer-sheets/extract-from-pdf", { paperLink });
+      // Convert uploaded images/PDFs to base64
+      const imageBase64Arr: string[] = [];
+      for (let i = 0; i < Math.min(files.length, 5); i++) {
+        const file = files[i];
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(file);
+        });
+        imageBase64Arr.push(base64); // data:image/...;base64,xxx format
+      }
+
+      const resp = await apiRequest("POST", "/api/answer-sheets/extract-from-pdf", { imageBase64Arr });
       const data = await resp.json();
       if (data.parts && Array.isArray(data.parts)) {
         const newParts: PartItem[] = data.parts.map((p: any, idx: number) => ({
@@ -393,26 +402,41 @@ export default function TeacherQuickBuild() {
                 </div>
                 <div>
                   <Label htmlFor="paperLink">試卷連結 (Google Drive PDF/Image)</Label>
+                  <Input
+                    id="paperLink"
+                    placeholder="https://drive.google.com/..."
+                    value={paperLink}
+                    onChange={(e) => setPaperLink(e.target.value)}
+                    data-testid="input-paper-link"
+                  />
+                </div>
+                <div>
+                  <Label>AI 提取題目（上傳試卷截圖/照片）</Label>
                   <div className="flex gap-2">
-                    <Input
-                      id="paperLink"
-                      placeholder="https://drive.google.com/..."
-                      value={paperLink}
-                      onChange={(e) => setPaperLink(e.target.value)}
-                      data-testid="input-paper-link"
-                      className="flex-1"
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      ref={extractInputRef}
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          handleAiExtract(e.target.files);
+                          e.target.value = "";
+                        }
+                      }}
                     />
                     <Button
                       variant="outline"
-                      size="sm"
-                      onClick={handleAiExtract}
-                      disabled={isExtracting || !paperLink.trim()}
-                      title="AI 分析 PDF 自動提取題目結構"
+                      className="w-full"
+                      onClick={() => extractInputRef.current?.click()}
+                      disabled={isExtracting}
                     >
-                      {isExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-                      <span className="ml-1 hidden sm:inline">{isExtracting ? "分析中..." : "AI 提取"}</span>
+                      {isExtracting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Wand2 className="h-4 w-4 mr-2" />}
+                      {isExtracting ? "AI 分析中..." : "上傳試卷圖片，AI 自動提取題目"}
                     </Button>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1">支援上傳最多 5 張圖片，AI 會自動識別題目結構</p>
                 </div>
               </CardContent>
             </Card>

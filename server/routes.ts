@@ -2763,7 +2763,7 @@ STRICT RULES:
     }
   });
 
-  // AI: Extract question structure from PDF
+  // AI: Extract question structure from PDF images (sent as base64 from frontend)
   app.post("/api/answer-sheets/extract-from-pdf", async (req, res) => {
     const apiKey = process.env.POE_API_KEY;
     if (!apiKey) {
@@ -2771,55 +2771,18 @@ STRICT RULES:
       return;
     }
 
-    const { paperLink, pdfBase64 } = req.body;
-    if (!paperLink && !pdfBase64) {
-      res.status(400).json({ message: "請提供試卷連結或上傳 PDF" });
+    const { imageBase64Arr } = req.body; // Array of base64 image strings from frontend
+    if (!Array.isArray(imageBase64Arr) || imageBase64Arr.length === 0) {
+      res.status(400).json({ message: "請上傳試卷圖片" });
       return;
     }
 
     try {
-      let imageBase64Arr: string[] = [];
-
-      if (pdfBase64) {
-        // Direct PDF upload — convert pages to images
-        const pdfBuffer = Buffer.from(pdfBase64, "base64");
-        const pages = await pdfToImages(pdfBuffer);
-        imageBase64Arr = pages.slice(0, 5);
-      } else if (paperLink) {
-        // Google Drive URL → download → convert
-        const fileIdMatch = paperLink.match(/\/file\/d\/([^/]+)/i) || paperLink.match(/[?&]id=([^&]+)/i);
-        if (!fileIdMatch) {
-          res.status(400).json({ message: "無法解析 Google Drive 連結，請確認格式正確" });
-          return;
-        }
-        const fileId = fileIdMatch[1];
-        const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
-
-        const controller = new AbortController();
-        const dlTimeout = setTimeout(() => controller.abort(), 10000);
-        const dlResp = await fetch(downloadUrl, { signal: controller.signal, redirect: "follow" });
-        clearTimeout(dlTimeout);
-
-        if (!dlResp.ok) {
-          res.status(400).json({ message: "無法下載 PDF，請確認連結為公開分享" });
-          return;
-        }
-
-        const pdfBuffer = Buffer.from(await dlResp.arrayBuffer());
-        const pages = await pdfToImages(pdfBuffer);
-        imageBase64Arr = pages.slice(0, 5);
-      }
-
-      if (imageBase64Arr.length === 0) {
-        res.status(400).json({ message: "無法轉換 PDF 頁面" });
-        return;
-      }
-
       // Send images to Poe Vision API for question extraction
       const botName = process.env.POE_BOT_NAME || "Claude-3.7-Sonnet";
-      const contentParts: any[] = imageBase64Arr.map(b64 => ({
+      const contentParts: any[] = imageBase64Arr.slice(0, 5).map((b64: string) => ({
         type: "image_url",
-        image_url: { url: `data:image/png;base64,${b64}` }
+        image_url: { url: b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}` }
       }));
       contentParts.push({
         type: "text",
@@ -2836,7 +2799,7 @@ Return ONLY valid JSON array, no explanation:
       });
 
       const aiController = new AbortController();
-      const aiTimeout = setTimeout(() => aiController.abort(), 12000);
+      const aiTimeout = setTimeout(() => aiController.abort(), 25000);
       const aiResp = await fetch("https://api.poe.com/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
