@@ -37,6 +37,7 @@ export default function TeacherQuickBuild() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [uploadingMaterialsFor, setUploadingMaterialsFor] = useState<number | null>(null);
   const materialInputRef = useRef<HTMLInputElement>(null);
+  const [editingSheetId, setEditingSheetId] = useState<number | null>(null);
 
   const { data: sheets = [] } = useQuery<AnswerSheetSession[]>({
     queryKey: ["/api/answer-sheets"],
@@ -57,6 +58,25 @@ export default function TeacherQuickBuild() {
     },
     onError: () => {
       toast({ title: "建立失敗", variant: "destructive" });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: { id: number; title: string; paperLink: string; items: PartItem[] }) => {
+      const response = await apiRequest("PATCH", `/api/answer-sheets/${data.id}`, { title: data.title, paperLink: data.paperLink, items: data.items });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/answer-sheets"] });
+      toast({ title: "答案卷已更新" });
+      setEditingSheetId(null);
+      setTitle("");
+      setPaperLink("");
+      setParts([{ partId: "part-1", partName: "Part A", questions: [] }]);
+      setActivePartId("part-1");
+    },
+    onError: () => {
+      toast({ title: "更新失敗", variant: "destructive" });
     },
   });
 
@@ -205,8 +225,42 @@ export default function TeacherQuickBuild() {
       toast({ title: "請至少添加一題", variant: "destructive" });
       return;
     }
-    
-    createMutation.mutate({ title, paperLink, parts });
+
+    if (editingSheetId) {
+      updateMutation.mutate({ id: editingSheetId, title, paperLink, items: parts });
+    } else {
+      createMutation.mutate({ title, paperLink, parts });
+    }
+  };
+
+  const handleEditSheet = (sheet: AnswerSheetSession) => {
+    setEditingSheetId(sheet.id);
+    setTitle(sheet.title);
+    setPaperLink(sheet.paperLink);
+    try {
+      const parsed = JSON.parse(sheet.itemsJson);
+      if (Array.isArray(parsed) && parsed.length > 0 && 'partId' in parsed[0]) {
+        setParts(parsed as PartItem[]);
+        setActivePartId(parsed[0].partId);
+      } else {
+        // Old flat format — wrap in single part
+        setParts([{ partId: "part-1", partName: "Part A", questions: parsed as QuestionItem[] }]);
+        setActivePartId("part-1");
+      }
+    } catch {
+      setParts([{ partId: "part-1", partName: "Part A", questions: [] }]);
+      setActivePartId("part-1");
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    toast({ title: "已載入答案卷，修改後按儲存" });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSheetId(null);
+    setTitle("");
+    setPaperLink("");
+    setParts([{ partId: "part-1", partName: "Part A", questions: [] }]);
+    setActivePartId("part-1");
   };
 
   const copyLink = (id: number) => {
@@ -324,7 +378,7 @@ export default function TeacherQuickBuild() {
           <div className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>基本資料</CardTitle>
+                <CardTitle>{editingSheetId ? "編輯答案卷" : "基本資料"}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
@@ -524,14 +578,21 @@ export default function TeacherQuickBuild() {
                   <CardTitle>題目預覽</CardTitle>
                   <CardDescription>共 {parts.length} 個 Part，{totalQuestions} 題</CardDescription>
                 </div>
-                <Button 
-                  onClick={handleSave} 
-                  disabled={createMutation.isPending || totalQuestions === 0}
-                  data-testid="button-save"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  儲存答案卷
-                </Button>
+                <div className="flex gap-2">
+                  {editingSheetId && (
+                    <Button variant="outline" onClick={handleCancelEdit}>
+                      取消編輯
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleSave}
+                    disabled={(createMutation.isPending || updateMutation.isPending) || totalQuestions === 0}
+                    data-testid="button-save"
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    {editingSheetId ? "更新答案卷" : "儲存答案卷"}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 {totalQuestions === 0 ? (
@@ -632,6 +693,14 @@ export default function TeacherQuickBuild() {
                                 data-testid={`button-preview-${sheet.id}`}
                               >
                                 <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleEditSheet(sheet)}
+                                title="編輯答案卷"
+                              >
+                                <Edit2 className="h-4 w-4" />
                               </Button>
                               <Button
                                 variant="ghost"
