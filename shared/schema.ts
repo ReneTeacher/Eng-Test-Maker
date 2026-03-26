@@ -34,6 +34,8 @@ export const studentSubmissions = pgTable("student_submissions", {
   mixedClass: text("mixed_class").notNull(),
   totalScore: integer("total_score").notNull(),
   studentEmail: text("student_email"),
+  warningCount: integer("warning_count").notNull().default(0),
+  violationsJson: text("violations_json"),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 
@@ -63,6 +65,8 @@ export const textSubmissions = pgTable("text_submissions", {
   studentEmail: text("student_email"),
   maxScore: integer("max_score").notNull().default(100),
   feedback: text("feedback"),
+  warningCount: integer("warning_count").notNull().default(0),
+  violationsJson: text("violations_json"),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 
@@ -204,6 +208,8 @@ export const answerSheetSubmissions = pgTable("answer_sheet_submissions", {
   answersJson: text("answers_json").notNull(), // JSON string of student answers
   totalScore: integer("total_score").notNull(),
   maxScore: integer("max_score").notNull(),
+  warningCount: integer("warning_count").notNull().default(0),
+  violationsJson: text("violations_json"),
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 

@@ -141,7 +141,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Submissions
-  async createSubmission(submission: InsertSubmission & { totalScore: number }): Promise<StudentSubmission> {
+  async createSubmission(submission: InsertSubmission & { totalScore: number; warningCount?: number; violationsJson?: string | null }): Promise<StudentSubmission> {
     const [created] = await db.insert(studentSubmissions).values({
       examId: submission.examId,
       studentName: submission.studentName,
@@ -150,6 +150,8 @@ export class DatabaseStorage implements IStorage {
       mixedClass: submission.mixedClass,
       totalScore: submission.totalScore,
       studentEmail: (submission as any).studentEmail || null,
+      warningCount: submission.warningCount ?? 0,
+      violationsJson: submission.violationsJson ?? null,
     }).returning();
     return created;
   }
@@ -216,11 +218,15 @@ export class DatabaseStorage implements IStorage {
     maxScore?: number;
     feedback?: string;
     studentEmail?: string;
+    warningCount?: number;
+    violationsJson?: string | null;
   }): Promise<TextSubmission> {
     const [created] = await db.insert(textSubmissions).values({
       ...data,
       maxScore: data.maxScore ?? 100,
       studentEmail: data.studentEmail || null,
+      warningCount: data.warningCount ?? 0,
+      violationsJson: data.violationsJson ?? null,
     }).returning();
     return created;
   }

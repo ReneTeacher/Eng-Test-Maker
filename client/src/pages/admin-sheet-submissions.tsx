@@ -489,6 +489,7 @@ export default function AdminSheetSubmissions() {
                       <TableHead>原班</TableHead>
                       <TableHead>走班</TableHead>
                       <TableHead>得分</TableHead>
+                      <TableHead>警告</TableHead>
                       <TableHead>提交時間</TableHead>
                       <TableHead></TableHead>
                     </TableRow>
@@ -508,6 +509,15 @@ export default function AdminSheetSubmissions() {
                             <Badge variant={percentage >= 60 ? "default" : "destructive"}>
                               {sub.totalScore}/{sub.maxScore} ({percentage}%)
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {(sub as any).warningCount > 0 ? (
+                              <Badge variant="destructive" className="text-xs">
+                                {(sub as any).warningCount}次
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
                           </TableCell>
                           <TableCell className="text-muted-foreground text-sm">
                             {new Date(sub.submittedAt).toLocaleString("zh-TW")}

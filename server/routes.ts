@@ -1122,6 +1122,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         }
       }
 
+      const clientWarningCount = typeof req.body.warningCount === "number" ? req.body.warningCount : 0;
+      const clientViolations = Array.isArray(req.body.violations) ? JSON.stringify(req.body.violations) : null;
+
       // Create submission
       const submission = await storage.createSubmission({
         examId,
@@ -1131,6 +1134,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         mixedClass,
         totalScore: Math.round(totalScore),
         studentEmail,
+        warningCount: clientWarningCount,
+        violationsJson: clientViolations,
       } as any);
 
       // Create answer details with individual part scores
@@ -1696,6 +1701,9 @@ STRICT RULES:
         
         const finalTotalScore = Math.round(totalScore);
 
+        const clientWarningCount = typeof req.body.warningCount === "number" ? req.body.warningCount : 0;
+        const clientViolations = Array.isArray(req.body.violations) ? JSON.stringify(req.body.violations) : null;
+
         // Save submission
         const submission = await storage.createTextSubmission({
           examId,
@@ -1708,6 +1716,8 @@ STRICT RULES:
           maxScore,
           feedback: sentenceResults.map((r, i) => `第${i + 1}句: ${Math.round(r.earned)}/${r.max}分`).join("; "),
           studentEmail,
+          warningCount: clientWarningCount,
+          violationsJson: clientViolations,
         });
 
         // Save sentence answer details
@@ -1790,6 +1800,9 @@ STRICT RULES:
         ? "完全正確！非常好！"
         : scoreResult.details.join("；");
 
+      const clientWarningCount2 = typeof req.body.warningCount === "number" ? req.body.warningCount : 0;
+      const clientViolations2 = Array.isArray(req.body.violations) ? JSON.stringify(req.body.violations) : null;
+
       const submission = await storage.createTextSubmission({
         examId,
         studentName,
@@ -1801,6 +1814,8 @@ STRICT RULES:
         maxScore: 100,
         feedback,
         studentEmail,
+        warningCount: clientWarningCount2,
+        violationsJson: clientViolations2,
       });
 
       // Compute newly earned badges
@@ -2519,6 +2534,9 @@ STRICT RULES:
         }
       }
 
+      const sheetWarningCount = typeof req.body.warningCount === "number" ? req.body.warningCount : 0;
+      const sheetViolations = Array.isArray(req.body.violations) ? JSON.stringify(req.body.violations) : null;
+
       const submission = await storage.createAnswerSheetSubmission({
         sessionId,
         studentName,
@@ -2528,10 +2546,12 @@ STRICT RULES:
         answersJson: JSON.stringify(answers),
         totalScore,
         maxScore,
+        warningCount: sheetWarningCount,
+        violationsJson: sheetViolations,
       });
 
-      // Fire and forget: generate personalized report in background
-      generateReportInBackground(submission.id, sessionId).catch(console.error);
+      // AI report generation disabled for now
+      // generateReportInBackground(submission.id, sessionId).catch(console.error);
 
       res.json({
         submissionId: submission.id,

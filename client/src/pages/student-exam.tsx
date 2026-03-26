@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { BookOpen, Send, AlertCircle, User, ClipboardList, FileText, ShieldAlert, Loader2, ImageIcon, Camera } from "lucide-react";
+import { useAntiCheating } from "@/hooks/use-anti-cheating";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertDialog,
@@ -50,8 +51,6 @@ export default function StudentExam() {
   const [textAnswer, setTextAnswer] = useState("");
   const [sentenceAnswers, setSentenceAnswers] = useState<Record<number, string>>({});
   const [studentInfo, setStudentInfo] = useState<StudentLogin | null>(null);
-  const [warningCount, setWarningCount] = useState(0);
-  const [showCheatAlert, setShowCheatAlert] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviewUrls, setImagePreviewUrls] = useState<string[]>([]);
@@ -75,35 +74,6 @@ export default function StudentExam() {
     }
   }, [navigate, id]);
 
-  useEffect(() => {
-    const blockBack = (e: PopStateEvent) => {
-      e.preventDefault();
-      window.history.pushState(null, "", window.location.href);
-    };
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", blockBack);
-
-    const blockBackspace = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInput = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
-      if ((e.key === "Backspace" || e.key === "Delete") && !isInput) {
-        e.preventDefault();
-      }
-    };
-    document.addEventListener("keydown", blockBackspace);
-
-    const warnBeforeLeave = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warnBeforeLeave);
-
-    return () => {
-      window.removeEventListener("popstate", blockBack);
-      document.removeEventListener("keydown", blockBackspace);
-      window.removeEventListener("beforeunload", warnBeforeLeave);
-    };
-  }, []);
 
   const { data: activeExam, isLoading, error } = useQuery<ActiveExam>({
     queryKey: [`/api/exams/${id}`],
@@ -118,6 +88,8 @@ export default function StudentExam() {
       examId: number;
       answers: { questionId: number; studentWord: string; studentPos: string; studentMeaning: string }[];
       emailOverride?: string;
+      warningCount?: number;
+      violations?: { type: string; timestamp: string }[];
     }) => {
       const email = data.emailOverride ?? studentInfo?.studentEmail;
       const response = await apiRequest("POST", "/api/submissions", {
@@ -125,6 +97,8 @@ export default function StudentExam() {
         studentEmail: email,
         examId: data.examId,
         answers: data.answers,
+        warningCount: data.warningCount ?? 0,
+        violations: data.violations ?? [],
       });
       return response.json();
     },
@@ -150,6 +124,8 @@ export default function StudentExam() {
       studentText?: string;
       sentenceAnswers?: { sentenceId: number; studentSentence: string }[];
       emailOverride?: string;
+      warningCount?: number;
+      violations?: { type: string; timestamp: string }[];
     }) => {
       const email = data.emailOverride ?? studentInfo?.studentEmail;
       const response = await apiRequest("POST", "/api/text-submissions", {
@@ -158,6 +134,8 @@ export default function StudentExam() {
         examId: data.examId,
         studentText: data.studentText || "",
         sentenceAnswers: data.sentenceAnswers,
+        warningCount: data.warningCount ?? 0,
+        violations: data.violations ?? [],
       });
       return response.json();
     },
@@ -182,34 +160,20 @@ export default function StudentExam() {
 
   const isSubmitting = submitMutation.isPending || submitTextMutation.isPending || isOcring;
 
-  // Anti-cheating: visibility change detection
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && !isSubmitting) {
-        setWarningCount(prev => {
-          const newCount = prev + 1;
-          if (newCount >= 3) {
-            // Auto submit on 3rd violation
-            // Since we can't easily trigger form submit from here without a ref, 
-            // we will directly call the mutation or wait for user to return
-            toast({
-              title: "自動提交",
-              description: "由於偵測到多次離開頁面，系統已自動提交您的答案。",
-              variant: "destructive",
-            });
-          } else {
-            setShowCheatAlert(true);
-          }
-          return newCount;
-        });
-      }
-    };
+  const autoSubmitRef = useRef<() => void>(() => {});
 
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, [isSubmitting, toast]);
+  const { warningCount, violations, showWarningDialog: showCheatAlert, setShowWarningDialog: setShowCheatAlert, handlePaste } = useAntiCheating({
+    enabled: !!studentInfo && !isSubmitting,
+    maxWarnings: 3,
+    onAutoSubmit: () => {
+      toast({
+        title: "自動提交",
+        description: "由於偵測到多次離開頁面，系統已自動提交您的答案。",
+        variant: "destructive",
+      });
+      autoSubmitRef.current();
+    },
+  });
 
   // 5-second countdown when confirm dialog opens
   useEffect(() => {
@@ -277,11 +241,6 @@ export default function StudentExam() {
         [field]: value,
       }
     }));
-  };
-
-  const handlePaste = (e: React.ClipboardEvent) => {
-    e.preventDefault();
-    return false;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -364,10 +323,12 @@ export default function StudentExam() {
     setShowConfirmDialog(true);
   };
 
-  const handleConfirmedSubmit = () => {
+  const handleConfirmedSubmit = (forceAutoSubmit = false) => {
     if (!activeExam) return;
-    const finalEmail = confirmEmail.trim() || undefined;
+    const finalEmail = forceAutoSubmit ? (studentInfo?.studentEmail || undefined) : (confirmEmail.trim() || undefined);
     setShowConfirmDialog(false);
+
+    const cheatingData = { warningCount, violations };
 
     if (activeExam.examType === "text" || activeExam.examType === "passage") {
       if (hasSentences && !isPassageExam) {
@@ -380,12 +341,14 @@ export default function StudentExam() {
           examId: activeExam.id,
           sentenceAnswers: sentenceSubmissions,
           emailOverride: finalEmail,
+          ...cheatingData,
         });
       } else {
         submitTextMutation.mutate({
           examId: activeExam.id,
           studentText: textAnswer.trim(),
           emailOverride: finalEmail,
+          ...cheatingData,
         });
       }
     } else {
@@ -401,9 +364,12 @@ export default function StudentExam() {
         examId: activeExam.id,
         answers: submissionAnswers,
         emailOverride: finalEmail,
+        ...cheatingData,
       });
     }
   };
+
+  autoSubmitRef.current = () => handleConfirmedSubmit(true);
 
   if (!studentInfo) {
     return null;
@@ -660,7 +626,7 @@ export default function StudentExam() {
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="button-cancel-submit">返回檢查</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleConfirmedSubmit}
+              onClick={() => handleConfirmedSubmit()}
               disabled={submitCountdown > 0}
               data-testid="button-confirm-submit"
             >

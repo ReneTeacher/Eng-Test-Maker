@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { ExternalLink, Send, CheckCircle2, XCircle, User, Loader2, RefreshCw, BookOpen } from "lucide-react";
+import { ExternalLink, Send, CheckCircle2, XCircle, User, Loader2, RefreshCw, BookOpen, AlertCircle } from "lucide-react";
 import type { AnswerSheetSession, QuestionItem, PartItem } from "@shared/schema";
+import { useAntiCheating } from "@/hooks/use-anti-cheating";
 
 interface FlatQuestion {
   partId?: string;
@@ -31,9 +32,24 @@ export default function StudentAnswerSheet() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   
   const [result, setResult] = useState<{ totalScore: number; maxScore: number; percentage: number; submissionId?: number } | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [reportStatus, setReportStatus] = useState<"none" | "pending" | "generating" | "completed" | "failed">("none");
   const [reportContent, setReportContent] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const autoSubmitRef = useRef<() => void>(() => {});
+
+  const { warningCount, violations, showWarningDialog, setShowWarningDialog, pauseDetection, handlePaste } = useAntiCheating({
+    enabled: isLoggedIn && !result && !isSubmitting,
+    maxWarnings: 3,
+    onAutoSubmit: () => {
+      toast({
+        title: "自動提交",
+        description: "由於偵測到多次離開頁面，系統已自動提交您的答案。",
+        variant: "destructive",
+      });
+      autoSubmitRef.current();
+    },
+  });
 
   const { data: session, isLoading, error } = useQuery<AnswerSheetSession>({
     queryKey: ["/api/answer-sheets", id],
@@ -76,13 +92,16 @@ export default function StudentAnswerSheet() {
   const { parts, flatQuestions } = parseItems();
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (cheatingData: { warningCount: number; violations: { type: string; timestamp: string }[] }) => {
+      setIsSubmitting(true);
       const response = await apiRequest("POST", `/api/answer-sheets/${id}/submit`, {
         studentName,
         studentNumber: parseInt(studentNumber),
         originalClass,
         mixedClass,
         answers,
+        warningCount: cheatingData.warningCount,
+        violations: cheatingData.violations,
       });
       return response.json();
     },
@@ -91,6 +110,7 @@ export default function StudentAnswerSheet() {
       toast({ title: "提交成功" });
     },
     onError: () => {
+      setIsSubmitting(false);
       toast({ title: "提交失敗", variant: "destructive" });
     },
   });
@@ -166,8 +186,10 @@ export default function StudentAnswerSheet() {
         return;
       }
     }
-    submitMutation.mutate();
+    submitMutation.mutate({ warningCount, violations });
   };
+
+  autoSubmitRef.current = () => submitMutation.mutate({ warningCount, violations });
 
   if (isLoading) {
     return (
@@ -351,6 +373,26 @@ export default function StudentAnswerSheet() {
   // Show answer form with parts support
   return (
     <div className="min-h-screen bg-background">
+      {showWarningDialog && warningCount < 3 && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+          <Card className="max-w-md w-full border-destructive shadow-2xl">
+            <CardHeader className="bg-destructive text-destructive-foreground">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-6 h-6" />
+                <CardTitle>嚴正警告 (第 {warningCount} 次)</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6 space-y-4 text-center">
+              <p className="text-lg font-bold text-destructive">偵測到您離開了考試頁面！</p>
+              <p>請保持在考試分頁。離開頁面超過 3 次將自動提交答案。</p>
+              <Button onClick={() => setShowWarningDialog(false)} className="w-full h-12 text-lg">
+                返回考試
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="sticky top-0 z-10 bg-background border-b p-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div>
@@ -360,7 +402,10 @@ export default function StudentAnswerSheet() {
           <div className="flex gap-2">
             <Button
               variant="outline"
-              onClick={() => window.open(session.paperLink, "_blank")}
+              onClick={() => {
+                pauseDetection(5000);
+                window.open(session.paperLink, "_blank");
+              }}
               data-testid="button-view-paper"
             >
               <ExternalLink className="h-4 w-4 mr-2" />
@@ -430,6 +475,7 @@ export default function StudentAnswerSheet() {
                             autoCorrect="off"
                             autoCapitalize="off"
                             spellCheck="false"
+                            onPaste={handlePaste}
                             data-testid={`input-text-${part.partId}-${question.id}`}
                           />
                         )}

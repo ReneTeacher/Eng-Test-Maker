@@ -486,6 +486,7 @@ export default function AdminSubmissions() {
                     <TableHead>原班</TableHead>
                     <TableHead>分班</TableHead>
                     <TableHead>分數</TableHead>
+                    <TableHead>警告</TableHead>
                     <TableHead>提交時間</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
@@ -501,6 +502,15 @@ export default function AdminSubmissions() {
                         <Badge variant={getScoreBadgeVariant(sub.totalScore)}>
                           {sub.totalScore} / 100
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {(sub as any).warningCount > 0 ? (
+                          <Badge variant="destructive" className="text-xs">
+                            {(sub as any).warningCount}次
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatDate(sub.submittedAt)}
