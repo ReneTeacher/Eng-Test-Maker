@@ -30,7 +30,8 @@ export default function StudentAnswerSheet() {
   const [mixedClass, setMixedClass] = useState("");
   
   const [answers, setAnswers] = useState<Record<string, string>>({});
-  
+  const [showPaper, setShowPaper] = useState(false);
+
   const [result, setResult] = useState<{ totalScore: number; maxScore: number; percentage: number; submissionId?: number } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reportStatus, setReportStatus] = useState<"none" | "pending" | "generating" | "completed" | "failed">("none");
@@ -38,7 +39,7 @@ export default function StudentAnswerSheet() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoSubmitRef = useRef<() => void>(() => {});
 
-  const { warningCount, violations, showWarningDialog, setShowWarningDialog, pauseDetection, handlePaste } = useAntiCheating({
+  const { warningCount, violations, showWarningDialog, setShowWarningDialog, handlePaste } = useAntiCheating({
     enabled: isLoggedIn && !result && !isSubmitting,
     maxWarnings: 3,
     onAutoSubmit: () => {
@@ -114,6 +115,12 @@ export default function StudentAnswerSheet() {
       toast({ title: "提交失敗", variant: "destructive" });
     },
   });
+
+  const getEmbedUrl = (link: string): string => {
+    const driveMatch = link.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (driveMatch) return `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
+    return link;
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -370,7 +377,128 @@ export default function StudentAnswerSheet() {
     );
   }
 
-  // Show answer form with parts support
+  const embedUrl = session ? getEmbedUrl(session.paperLink) : "";
+
+  const questionsContent = (
+    <>
+      {parts ? (
+        parts.map((part) => (
+          <div key={part.partId}>
+            <h3 className="text-lg font-semibold text-primary mb-3 sticky top-14 bg-background py-2 z-[5]">
+              {part.partName}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {part.questions.map((question) => {
+                const key = getAnswerKey(part.partId, question.id);
+                return (
+                  <Card key={key} className="relative">
+                    <CardContent className="pt-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
+                          {question.id}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-xs ${
+                          question.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                        }`}>
+                          {question.type === "mc" ? "MC" : "填充"}
+                        </span>
+                      </div>
+                      {question.type === "mc" && question.options ? (
+                        <div className="flex flex-wrap gap-2">
+                          {question.options.map((option) => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => selectMcAnswer(part.partId, question.id, option)}
+                              className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
+                                answers[key] === option
+                                  ? "bg-primary text-primary-foreground border-primary"
+                                  : "bg-background text-foreground border-border hover:border-primary/50"
+                              }`}
+                              data-testid={`button-option-${part.partId}-${question.id}-${option}`}
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <Input
+                          placeholder="輸入答案"
+                          value={answers[key] || ""}
+                          onChange={(e) => setTextAnswer(part.partId, question.id, e.target.value)}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck="false"
+                          onPaste={handlePaste}
+                          data-testid={`input-text-${part.partId}-${question.id}`}
+                        />
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {flatQuestions.map((item) => {
+            const key = getAnswerKey(item.partId, item.question.id);
+            return (
+              <Card key={key} className="relative">
+                <CardContent className="pt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
+                      {item.question.id}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-xs ${
+                      item.question.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
+                    }`}>
+                      {item.question.type === "mc" ? "MC" : "填充"}
+                    </span>
+                  </div>
+                  {item.question.type === "mc" && item.question.options ? (
+                    <div className="flex flex-wrap gap-2">
+                      {item.question.options.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          onClick={() => selectMcAnswer(item.partId, item.question.id, option)}
+                          className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
+                            answers[key] === option
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-background text-foreground border-border hover:border-primary/50"
+                          }`}
+                          data-testid={`button-option-${item.question.id}-${option}`}
+                        >
+                          {option}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <Input
+                      placeholder="輸入答案"
+                      value={answers[key] || ""}
+                      onChange={(e) => setTextAnswer(item.partId, item.question.id, e.target.value)}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck="false"
+                      onPaste={handlePaste}
+                      data-testid={`input-text-${item.question.id}`}
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+
+  // Show answer form with split-screen layout
   return (
     <div className="min-h-screen bg-background">
       {showWarningDialog && warningCount < 3 && (
@@ -393,166 +521,85 @@ export default function StudentAnswerSheet() {
         </div>
       )}
 
-      <div className="sticky top-0 z-10 bg-background border-b p-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold">{session.title}</h1>
-            <p className="text-sm text-muted-foreground">{studentName} ({originalClass})</p>
-          </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                pauseDetection(5000);
-                window.open(session.paperLink, "_blank");
-              }}
-              data-testid="button-view-paper"
-            >
-              <ExternalLink className="h-4 w-4 mr-2" />
-              查看試卷
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={submitMutation.isPending}
-              data-testid="button-submit"
-            >
-              <Send className="h-4 w-4 mr-2" />
-              提交答案
+      {/* Mobile: fullscreen paper overlay */}
+      {showPaper && (
+        <div className="md:hidden fixed inset-0 z-50 bg-background flex flex-col">
+          <iframe
+            src={embedUrl}
+            className="flex-1 w-full"
+            allow="autoplay"
+            sandbox="allow-scripts allow-same-origin"
+          />
+          <div className="p-3 border-t">
+            <Button onClick={() => setShowPaper(false)} className="w-full" size="lg">
+              返回答題
             </Button>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="max-w-4xl mx-auto p-4 space-y-6">
-        {parts ? (
-          // Multi-part format
-          parts.map((part) => (
-            <div key={part.partId}>
-              <h3 className="text-lg font-semibold text-primary mb-3 sticky top-20 bg-background py-2 z-5">
-                {part.partName}
-              </h3>
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {part.questions.map((question) => {
-                  const key = getAnswerKey(part.partId, question.id);
-                  return (
-                    <Card key={key} className="relative">
-                      <CardContent className="pt-4">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                            {question.id}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded text-xs ${
-                            question.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                          }`}>
-                            {question.type === "mc" ? "MC" : "填充"}
-                          </span>
-                        </div>
-
-                        {question.type === "mc" && question.options ? (
-                          <div className="flex flex-wrap gap-2">
-                            {question.options.map((option) => (
-                              <button
-                                key={option}
-                                type="button"
-                                onClick={() => selectMcAnswer(part.partId, question.id, option)}
-                                className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
-                                  answers[key] === option
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : "bg-background text-foreground border-border hover:border-primary/50"
-                                }`}
-                                data-testid={`button-option-${part.partId}-${question.id}-${option}`}
-                              >
-                                {option}
-                              </button>
-                            ))}
-                          </div>
-                        ) : (
-                          <Input
-                            placeholder="輸入答案"
-                            value={answers[key] || ""}
-                            onChange={(e) => setTextAnswer(part.partId, question.id, e.target.value)}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck="false"
-                            onPaste={handlePaste}
-                            data-testid={`input-text-${part.partId}-${question.id}`}
-                          />
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          ))
-        ) : (
-          // Flat format (legacy)
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {flatQuestions.map((item) => {
-              const key = getAnswerKey(item.partId, item.question.id);
-              return (
-                <Card key={key} className="relative">
-                  <CardContent className="pt-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground font-bold text-sm">
-                        {item.question.id}
-                      </span>
-                      <span className={`px-2 py-0.5 rounded text-xs ${
-                        item.question.type === "mc" ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" : "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
-                      }`}>
-                        {item.question.type === "mc" ? "MC" : "填充"}
-                      </span>
-                    </div>
-
-                    {item.question.type === "mc" && item.question.options ? (
-                      <div className="flex flex-wrap gap-2">
-                        {item.question.options.map((option) => (
-                          <button
-                            key={option}
-                            type="button"
-                            onClick={() => selectMcAnswer(item.partId, item.question.id, option)}
-                            className={`w-12 h-12 rounded-full border-2 font-bold text-lg transition-all ${
-                              answers[key] === option
-                                ? "bg-primary text-primary-foreground border-primary"
-                                : "bg-background text-foreground border-border hover:border-primary/50"
-                            }`}
-                            data-testid={`button-option-${item.question.id}-${option}`}
-                          >
-                            {option}
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <Input
-                        placeholder="輸入答案"
-                        value={answers[key] || ""}
-                        onChange={(e) => setTextAnswer(item.partId, item.question.id, e.target.value)}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck="false"
-                        data-testid={`input-text-${item.question.id}`}
-                      />
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
+      <div className="flex min-h-screen">
+        {/* Desktop: left side paper panel */}
+        {showPaper && (
+          <div className="hidden md:block md:w-1/2 border-r sticky top-0 h-screen">
+            <iframe
+              src={embedUrl}
+              className="w-full h-full"
+              allow="autoplay"
+              sandbox="allow-scripts allow-same-origin"
+            />
           </div>
         )}
 
-        <div className="fixed bottom-4 left-4 right-4 sm:hidden">
-          <Button
-            onClick={handleSubmit}
-            disabled={submitMutation.isPending}
-            className="w-full"
-            size="lg"
-            data-testid="button-submit-mobile"
-          >
-            <Send className="h-4 w-4 mr-2" />
-            提交答案 ({Object.keys(answers).length}/{flatQuestions.length})
-          </Button>
+        {/* Right side: header + questions */}
+        <div className={showPaper ? "w-full md:w-1/2" : "w-full"}>
+          <div className="sticky top-0 z-10 bg-background border-b p-3">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <h1 className="text-base font-bold truncate">{session.title}</h1>
+                <p className="text-xs text-muted-foreground">{studentName} ({originalClass})</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant={showPaper ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowPaper(prev => !prev)}
+                  data-testid="button-view-paper"
+                >
+                  <ExternalLink className="h-4 w-4 mr-1" />
+                  <span className="hidden sm:inline">{showPaper ? "收起試卷" : "查看試卷"}</span>
+                  <span className="sm:hidden">{showPaper ? "收起" : "試卷"}</span>
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSubmit}
+                  disabled={submitMutation.isPending}
+                  data-testid="button-submit"
+                >
+                  <Send className="h-4 w-4 mr-1" />
+                  <span className="hidden sm:inline">提交答案</span>
+                  <span className="sm:hidden">提交</span>
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 space-y-6 pb-20">
+            {questionsContent}
+          </div>
+
+          <div className="fixed bottom-4 left-4 right-4 md:hidden">
+            <Button
+              onClick={handleSubmit}
+              disabled={submitMutation.isPending}
+              className="w-full"
+              size="lg"
+              data-testid="button-submit-mobile"
+            >
+              <Send className="h-4 w-4 mr-2" />
+              提交答案 ({Object.keys(answers).length}/{flatQuestions.length})
+            </Button>
+          </div>
         </div>
       </div>
     </div>
