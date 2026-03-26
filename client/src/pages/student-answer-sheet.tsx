@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { ExternalLink, Send, CheckCircle2, XCircle, User } from "lucide-react";
+import { ExternalLink, Send, CheckCircle2, XCircle, User, Loader2, RefreshCw, BookOpen } from "lucide-react";
 import type { AnswerSheetSession, QuestionItem, PartItem } from "@shared/schema";
 
 interface FlatQuestion {
@@ -30,7 +30,10 @@ export default function StudentAnswerSheet() {
   
   const [answers, setAnswers] = useState<Record<string, string>>({});
   
-  const [result, setResult] = useState<{ totalScore: number; maxScore: number; percentage: number } | null>(null);
+  const [result, setResult] = useState<{ totalScore: number; maxScore: number; percentage: number; submissionId?: number } | null>(null);
+  const [reportStatus, setReportStatus] = useState<"none" | "pending" | "generating" | "completed" | "failed">("none");
+  const [reportContent, setReportContent] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data: session, isLoading, error } = useQuery<AnswerSheetSession>({
     queryKey: ["/api/answer-sheets", id],
@@ -86,6 +89,11 @@ export default function StudentAnswerSheet() {
     onSuccess: (data) => {
       setResult(data);
       toast({ title: "提交成功" });
+      // Start polling for AI report
+      if (data.submissionId) {
+        setReportStatus("pending");
+        startReportPolling(data.submissionId);
+      }
     },
     onError: () => {
       toast({ title: "提交失敗", variant: "destructive" });
@@ -113,6 +121,44 @@ export default function StudentAnswerSheet() {
   const setTextAnswer = (partId: string | undefined, questionId: number, value: string) => {
     const key = getAnswerKey(partId, questionId);
     setAnswers((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const startReportPolling = (submissionId: number) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const resp = await fetch(`/api/answer-sheets/submissions/${submissionId}/report`);
+        if (resp.ok) {
+          const data = await resp.json();
+          setReportStatus(data.status);
+          if (data.status === "completed" && data.content) {
+            setReportContent(data.content);
+            if (pollRef.current) clearInterval(pollRef.current);
+          } else if (data.status === "failed") {
+            setReportContent(data.content || "生成失敗");
+            if (pollRef.current) clearInterval(pollRef.current);
+          }
+        }
+      } catch {}
+    }, 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, []);
+
+  const handleRegenerateReport = async () => {
+    if (!result?.submissionId) return;
+    setReportStatus("pending");
+    setReportContent("");
+    try {
+      await apiRequest("POST", `/api/answer-sheets/submissions/${result.submissionId}/regenerate-report`);
+      startReportPolling(result.submissionId);
+    } catch {
+      toast({ title: "重新生成失敗", variant: "destructive" });
+    }
   };
 
   const handleSubmit = () => {
@@ -192,6 +238,9 @@ export default function StudentAnswerSheet() {
                           <span className={isCorrect ? "text-green-600" : "text-red-600"}>
                             {studentAnswer}
                           </span>
+                          {!isCorrect && (
+                            <span className="text-xs text-muted-foreground ml-auto">({q.correct})</span>
+                          )}
                         </div>
                       );
                     })}
@@ -214,9 +263,38 @@ export default function StudentAnswerSheet() {
                       <span className={isCorrect ? "text-green-600" : "text-red-600"}>
                         {studentAnswer}
                       </span>
+                      {!isCorrect && (
+                        <span className="text-xs text-muted-foreground ml-auto">({item.question.correct})</span>
+                      )}
                     </div>
                   );
                 })
+              )}
+            </div>
+
+            {/* AI Learning Report */}
+            <div className="mt-6 border rounded-md p-4 bg-muted/30">
+              <div className="flex items-center gap-2 mb-3">
+                <BookOpen className="h-4 w-4 text-primary" />
+                <h4 className="font-semibold text-sm">AI 學習分析報告</h4>
+              </div>
+              {(reportStatus === "none" || reportStatus === "pending" || reportStatus === "generating") && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{reportStatus === "generating" ? "AI 正在分析你的答題表現..." : "報告生成中..."}</span>
+                </div>
+              )}
+              {reportStatus === "completed" && reportContent && (
+                <div className="text-sm leading-relaxed whitespace-pre-wrap">{reportContent}</div>
+              )}
+              {reportStatus === "failed" && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">報告生成失敗</p>
+                  <Button size="sm" variant="outline" onClick={handleRegenerateReport}>
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    重新生成
+                  </Button>
+                </div>
               )}
             </div>
           </CardContent>

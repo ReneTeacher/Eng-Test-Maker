@@ -8,6 +8,142 @@ import { db } from "./db";
 import { and, eq } from "drizzle-orm";
 import { sendScoreEmail } from "./email";
 
+async function generateReportInBackground(submissionId: number, sessionId: number) {
+  try {
+    const session = await storage.getAnswerSheetSessionById(sessionId);
+    if (!session) return;
+
+    // Create report record
+    const report = await storage.createStudentReport({ submissionId, sessionId, status: "generating", reportContent: "" });
+
+    const apiKey = process.env.POE_API_KEY;
+    if (!apiKey) {
+      await storage.updateStudentReport(report.id, { status: "failed", reportContent: "AI 功能未啟用" });
+      return;
+    }
+
+    // Get submission details
+    const submissions = await storage.getAnswerSheetSubmissionsBySessionId(sessionId);
+    const submission = submissions.find(s => s.id === submissionId);
+    if (!submission) {
+      await storage.updateStudentReport(report.id, { status: "failed", reportContent: "找不到提交記錄" });
+      return;
+    }
+
+    // Parse questions and answers
+    const items = JSON.parse(session.itemsJson);
+    const answers = JSON.parse(submission.answersJson);
+
+    // Build wrong answers list
+    const allQuestions: { partName?: string; id: number; type: string; correct: string; studentAnswer: string }[] = [];
+    const isPartFormat = Array.isArray(items) && items.length > 0 && 'partId' in items[0];
+
+    if (isPartFormat) {
+      for (const part of items) {
+        for (const q of part.questions) {
+          const key1 = `${part.partId}:${q.id}`;
+          const key2 = String(q.id);
+          const sa = answers[key1] || answers[key2] || "";
+          allQuestions.push({ partName: part.partName, id: q.id, type: q.type, correct: q.correct, studentAnswer: String(sa) });
+        }
+      }
+    } else {
+      for (const q of items) {
+        const sa = answers[String(q.id)] || "";
+        allQuestions.push({ id: q.id, type: q.type, correct: q.correct, studentAnswer: String(sa) });
+      }
+    }
+
+    const wrongAnswers = allQuestions.filter(q => q.correct.trim().toLowerCase() !== q.studentAnswer.trim().toLowerCase());
+    const correctAnswers = allQuestions.filter(q => q.correct.trim().toLowerCase() === q.studentAnswer.trim().toLowerCase());
+
+    // Build prompt
+    let questionsText = "";
+    for (const q of wrongAnswers) {
+      const part = q.partName ? `[${q.partName}] ` : "";
+      questionsText += `${part}Q${q.id}: Student answered "${q.studentAnswer || "(空白)"}", correct answer is "${q.correct}"\n`;
+    }
+
+    // Build AI message with optional analysis materials as images
+    const contentParts: any[] = [];
+
+    // Add analysis materials if available
+    if (session.analysisMaterialsJson) {
+      try {
+        const materials = JSON.parse(session.analysisMaterialsJson);
+        for (const mat of materials) {
+          if (mat.base64Data && mat.mimeType) {
+            contentParts.push({
+              type: "image_url",
+              image_url: { url: `data:${mat.mimeType};base64,${mat.base64Data}` }
+            });
+          }
+        }
+      } catch {}
+    }
+
+    contentParts.push({
+      type: "text",
+      text: `你是一位英語教師助手。請根據以下資料為學生撰寫個人化的學習分析報告。
+
+## Student Info
+Name: ${submission.studentName}
+Score: ${submission.totalScore}/${submission.maxScore} (${Math.round((submission.totalScore / submission.maxScore) * 100)}%)
+Correct: ${correctAnswers.length}/${allQuestions.length} questions
+
+## Wrong Answers
+${wrongAnswers.length === 0 ? "全部答對！" : questionsText}
+
+${contentParts.length > 1 ? "## 上方圖片是教師提供的題目分析材料，請參考但不要直接照搬。" : ""}
+
+## 要求
+用中英混合撰寫（標題和建議用繁體中文，具體錯誤分析用英文），約 150-250 字：
+1. 一句話總結表現
+2. 分析錯題的知識點薄弱處（具體到哪些 grammar rules / vocabulary / reading skills）
+3. 針對性改進建議
+不要照搬教師筆記，要根據這位學生的具體錯誤模式做個人化分析。`
+    });
+
+    const botName = process.env.POE_BOT_NAME || "Claude-3.7-Sonnet";
+    const aiResp = await fetch("https://api.poe.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: botName, messages: [{ role: "user", content: contentParts }], stream: false }),
+    });
+
+    if (!aiResp.ok) {
+      const errText = await aiResp.text();
+      console.error("Report AI error:", aiResp.status, errText);
+      await storage.updateStudentReport(report.id, { status: "failed", reportContent: "AI 生成失敗" });
+      return;
+    }
+
+    const aiData = await aiResp.json();
+    const reportText = (aiData.choices?.[0]?.message?.content as string) || "";
+
+    await storage.updateStudentReport(report.id, { status: "completed", reportContent: reportText, completedAt: new Date() });
+    console.log(`Report generated for submission ${submissionId}`);
+  } catch (err: any) {
+    console.error("Report generation error:", err?.message || err);
+    try {
+      const report = await storage.getStudentReportBySubmissionId(submissionId);
+      if (report) {
+        await storage.updateStudentReport(report.id, { status: "failed", reportContent: "生成過程出錯" });
+      }
+    } catch {}
+  }
+}
+
+async function pdfToImages(pdfBuffer: Buffer): Promise<string[]> {
+  const { pdf } = await import("pdf-to-img");
+  const images: string[] = [];
+  const doc = await pdf(pdfBuffer, { scale: 2 });
+  for await (const page of doc) {
+    images.push(Buffer.from(page).toString("base64"));
+  }
+  return images;
+}
+
 // AI sentence splitting for passage type
 async function aiSplitPassage(text: string, apiKey: string): Promise<string[]> {
   const prompt = `請將以下文章按邏輯分割成評分單元，每個單元獨立一行輸出。
@@ -2394,6 +2530,9 @@ STRICT RULES:
         maxScore,
       });
 
+      // Fire and forget: generate personalized report in background
+      generateReportInBackground(submission.id, sessionId).catch(console.error);
+
       res.json({
         submissionId: submission.id,
         totalScore,
@@ -2523,6 +2662,214 @@ STRICT RULES:
     } catch (error) {
       console.error("Export Excel error:", error);
       res.status(500).json({ message: "Failed to export Excel" });
+    }
+  });
+
+  // Upload analysis materials for an answer sheet
+  app.post("/api/answer-sheets/:id/analysis-materials", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const session = await storage.getAnswerSheetSessionById(id);
+      if (!session) {
+        res.status(404).json({ message: "Answer sheet not found" });
+        return;
+      }
+
+      const { materials } = req.body; // [{ filename, base64Data, mimeType }]
+      if (!Array.isArray(materials) || materials.length === 0) {
+        res.status(400).json({ message: "No materials provided" });
+        return;
+      }
+      if (materials.length > 3) {
+        res.status(400).json({ message: "最多上傳 3 個檔案" });
+        return;
+      }
+
+      const existing = session.analysisMaterialsJson ? JSON.parse(session.analysisMaterialsJson) : [];
+      const combined = [...existing, ...materials].slice(0, 3);
+
+      await storage.updateAnswerSheetSession(id, { analysisMaterialsJson: JSON.stringify(combined) } as any);
+      res.json({ success: true, count: combined.length });
+    } catch (error) {
+      console.error("Upload analysis materials error:", error);
+      res.status(500).json({ message: "Failed to upload analysis materials" });
+    }
+  });
+
+  // Delete a specific analysis material by index
+  app.delete("/api/answer-sheets/:id/analysis-materials/:index", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const index = parseInt(req.params.index);
+      const session = await storage.getAnswerSheetSessionById(id);
+      if (!session) {
+        res.status(404).json({ message: "Answer sheet not found" });
+        return;
+      }
+
+      const materials = session.analysisMaterialsJson ? JSON.parse(session.analysisMaterialsJson) : [];
+      if (index < 0 || index >= materials.length) {
+        res.status(400).json({ message: "Invalid index" });
+        return;
+      }
+
+      materials.splice(index, 1);
+      await storage.updateAnswerSheetSession(id, { analysisMaterialsJson: JSON.stringify(materials) } as any);
+      res.json({ success: true, count: materials.length });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to delete analysis material" });
+    }
+  });
+
+  // Get student report for a submission
+  app.get("/api/answer-sheets/submissions/:submissionId/report", async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.submissionId);
+      const report = await storage.getStudentReportBySubmissionId(submissionId);
+      if (!report) {
+        res.json({ status: "none" });
+        return;
+      }
+      res.json({ status: report.status, content: report.reportContent, completedAt: report.completedAt });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to get report" });
+    }
+  });
+
+  // Regenerate student report
+  app.post("/api/answer-sheets/submissions/:submissionId/regenerate-report", async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.submissionId);
+      const report = await storage.getStudentReportBySubmissionId(submissionId);
+      if (report) {
+        await storage.updateStudentReport(report.id, { status: "pending", reportContent: "", completedAt: null as any });
+      }
+      // Need sessionId — look up from submission
+      const allSessions = await storage.getAnswerSheetSessions();
+      let sessionId: number | null = null;
+      for (const sess of allSessions) {
+        const subs = await storage.getAnswerSheetSubmissionsBySessionId(sess.id);
+        if (subs.some(s => s.id === submissionId)) {
+          sessionId = sess.id;
+          break;
+        }
+      }
+      if (sessionId) {
+        generateReportInBackground(submissionId, sessionId).catch(console.error);
+      }
+      res.json({ status: "pending" });
+    } catch (error) {
+      res.status(500).json({ message: "Failed to regenerate report" });
+    }
+  });
+
+  // AI: Extract question structure from PDF
+  app.post("/api/answer-sheets/extract-from-pdf", async (req, res) => {
+    const apiKey = process.env.POE_API_KEY;
+    if (!apiKey) {
+      res.status(400).json({ message: "AI 功能未啟用（缺少 POE_API_KEY）" });
+      return;
+    }
+
+    const { paperLink, pdfBase64 } = req.body;
+    if (!paperLink && !pdfBase64) {
+      res.status(400).json({ message: "請提供試卷連結或上傳 PDF" });
+      return;
+    }
+
+    try {
+      let imageBase64Arr: string[] = [];
+
+      if (pdfBase64) {
+        // Direct PDF upload — convert pages to images
+        const pdfBuffer = Buffer.from(pdfBase64, "base64");
+        const pages = await pdfToImages(pdfBuffer);
+        imageBase64Arr = pages.slice(0, 5);
+      } else if (paperLink) {
+        // Google Drive URL → download → convert
+        const fileIdMatch = paperLink.match(/\/file\/d\/([^/]+)/i) || paperLink.match(/[?&]id=([^&]+)/i);
+        if (!fileIdMatch) {
+          res.status(400).json({ message: "無法解析 Google Drive 連結，請確認格式正確" });
+          return;
+        }
+        const fileId = fileIdMatch[1];
+        const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+
+        const controller = new AbortController();
+        const dlTimeout = setTimeout(() => controller.abort(), 10000);
+        const dlResp = await fetch(downloadUrl, { signal: controller.signal, redirect: "follow" });
+        clearTimeout(dlTimeout);
+
+        if (!dlResp.ok) {
+          res.status(400).json({ message: "無法下載 PDF，請確認連結為公開分享" });
+          return;
+        }
+
+        const pdfBuffer = Buffer.from(await dlResp.arrayBuffer());
+        const pages = await pdfToImages(pdfBuffer);
+        imageBase64Arr = pages.slice(0, 5);
+      }
+
+      if (imageBase64Arr.length === 0) {
+        res.status(400).json({ message: "無法轉換 PDF 頁面" });
+        return;
+      }
+
+      // Send images to Poe Vision API for question extraction
+      const botName = process.env.POE_BOT_NAME || "Claude-3.7-Sonnet";
+      const contentParts: any[] = imageBase64Arr.map(b64 => ({
+        type: "image_url",
+        image_url: { url: `data:image/png;base64,${b64}` }
+      }));
+      contentParts.push({
+        type: "text",
+        text: `Analyze this exam paper. Extract the question structure as JSON.
+
+For each section/part:
+- Identify the part name (e.g. "Part A: Multiple Choice")
+- For MC questions: question number, type "mc", options array (e.g. ["A","B","C","D"])
+- For fill-in-the-blank/short answer: question number, type "text"
+- Do NOT extract correct answers
+
+Return ONLY valid JSON array, no explanation:
+[{"partName":"Part A: ...","questions":[{"id":1,"type":"mc","options":["A","B","C","D"]},{"id":2,"type":"text"}]}]`
+      });
+
+      const aiController = new AbortController();
+      const aiTimeout = setTimeout(() => aiController.abort(), 12000);
+      const aiResp = await fetch("https://api.poe.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: botName, messages: [{ role: "user", content: contentParts }], stream: false }),
+        signal: aiController.signal,
+      });
+      clearTimeout(aiTimeout);
+
+      if (!aiResp.ok) {
+        const errText = await aiResp.text();
+        console.error("Poe API error (extract):", aiResp.status, errText);
+        res.status(400).json({ message: "AI 分析失敗，請重試" });
+        return;
+      }
+
+      const aiData = await aiResp.json();
+      let rawText = (aiData.choices?.[0]?.message?.content as string) || "";
+      // Extract JSON from response (might be wrapped in markdown code block)
+      const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        res.status(400).json({ message: "AI 無法提取題目結構，請重試或手動輸入", rawResponse: rawText });
+        return;
+      }
+
+      const extracted = JSON.parse(jsonMatch[0]);
+      res.json({ parts: extracted });
+    } catch (err: any) {
+      console.error("Extract from PDF error:", err?.message || err);
+      if (err?.name === "AbortError") {
+        res.status(400).json({ message: "操作逾時，請重試" });
+      } else {
+        res.status(400).json({ message: "PDF 分析失敗：" + (err?.message || "未知錯誤") });
+      }
     }
   });
 

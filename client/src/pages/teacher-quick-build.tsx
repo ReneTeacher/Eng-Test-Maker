@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ArrowLeft, Plus, Trash2, Save, Copy, Eye, BarChart3, Edit2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Save, Copy, Eye, BarChart3, Edit2, Wand2, Upload, X, FileText, Loader2 } from "lucide-react";
 import type { QuestionItem, PartItem, AnswerSheetSession } from "@shared/schema";
 
 export default function TeacherQuickBuild() {
@@ -33,6 +33,10 @@ export default function TeacherQuickBuild() {
   const [fibStartNum, setFibStartNum] = useState(1);
   const [fibEndNum, setFibEndNum] = useState(10);
   const [fibAnswers, setFibAnswers] = useState("");
+
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [uploadingMaterialsFor, setUploadingMaterialsFor] = useState<number | null>(null);
+  const materialInputRef = useRef<HTMLInputElement>(null);
 
   const { data: sheets = [] } = useQuery<AnswerSheetSession[]>({
     queryKey: ["/api/answer-sheets"],
@@ -225,6 +229,84 @@ export default function TeacherQuickBuild() {
     }
   };
 
+  const handleAiExtract = async () => {
+    if (!paperLink.trim()) {
+      toast({ title: "請先輸入試卷連結", variant: "destructive" });
+      return;
+    }
+    setIsExtracting(true);
+    try {
+      const resp = await apiRequest("POST", "/api/answer-sheets/extract-from-pdf", { paperLink });
+      const data = await resp.json();
+      if (data.parts && Array.isArray(data.parts)) {
+        const newParts: PartItem[] = data.parts.map((p: any, idx: number) => ({
+          partId: `part-${idx + 1}`,
+          partName: p.partName || `Part ${String.fromCharCode(65 + idx)}`,
+          questions: (p.questions || []).map((q: any) => ({
+            id: q.id || 1,
+            type: q.type === "mc" ? "mc" : "text",
+            correct: "",
+            options: q.options,
+          })),
+        }));
+        if (newParts.length > 0 && newParts.some(p => p.questions.length > 0)) {
+          setParts(newParts);
+          setActivePartId(newParts[0].partId);
+          toast({ title: "AI 提取成功", description: `找到 ${newParts.length} 個 Part，請檢查並填寫答案` });
+        } else {
+          toast({ title: "AI 未能提取到題目", description: "請手動輸入", variant: "destructive" });
+        }
+      }
+    } catch (err: any) {
+      toast({ title: "AI 提取失敗", description: err?.message || "請重試", variant: "destructive" });
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleMaterialUpload = async (sheetId: number, files: FileList) => {
+    setUploadingMaterialsFor(sheetId);
+    try {
+      const materials: { filename: string; base64Data: string; mimeType: string }[] = [];
+      for (let i = 0; i < Math.min(files.length, 3); i++) {
+        const file = files[i];
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(",")[1]);
+          };
+          reader.readAsDataURL(file);
+        });
+        materials.push({ filename: file.name, base64Data: base64, mimeType: file.type });
+      }
+      await apiRequest("POST", `/api/answer-sheets/${sheetId}/analysis-materials`, { materials });
+      queryClient.invalidateQueries({ queryKey: ["/api/answer-sheets"] });
+      toast({ title: "分析材料已上傳" });
+    } catch {
+      toast({ title: "上傳失敗", variant: "destructive" });
+    } finally {
+      setUploadingMaterialsFor(null);
+    }
+  };
+
+  const handleDeleteMaterial = async (sheetId: number, index: number) => {
+    try {
+      await apiRequest("DELETE", `/api/answer-sheets/${sheetId}/analysis-materials/${index}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/answer-sheets"] });
+      toast({ title: "已刪除" });
+    } catch {
+      toast({ title: "刪除失敗", variant: "destructive" });
+    }
+  };
+
+  const getMaterialCount = (sheet: AnswerSheetSession) => {
+    try {
+      if (!(sheet as any).analysisMaterialsJson) return 0;
+      return JSON.parse((sheet as any).analysisMaterialsJson).length;
+    } catch { return 0; }
+  };
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
       <div className="max-w-6xl mx-auto space-y-6">
@@ -257,13 +339,26 @@ export default function TeacherQuickBuild() {
                 </div>
                 <div>
                   <Label htmlFor="paperLink">試卷連結 (Google Drive PDF/Image)</Label>
-                  <Input
-                    id="paperLink"
-                    placeholder="https://drive.google.com/..."
-                    value={paperLink}
-                    onChange={(e) => setPaperLink(e.target.value)}
-                    data-testid="input-paper-link"
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      id="paperLink"
+                      placeholder="https://drive.google.com/..."
+                      value={paperLink}
+                      onChange={(e) => setPaperLink(e.target.value)}
+                      data-testid="input-paper-link"
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAiExtract}
+                      disabled={isExtracting || !paperLink.trim()}
+                      title="AI 分析 PDF 自動提取題目結構"
+                    >
+                      {isExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                      <span className="ml-1 hidden sm:inline">{isExtracting ? "分析中..." : "AI 提取"}</span>
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -508,53 +603,96 @@ export default function TeacherQuickBuild() {
                   <div className="space-y-2">
                     {sheets.map((sheet) => {
                       const itemCount = getItemCount(sheet);
+                      const materialCount = getMaterialCount(sheet);
                       return (
-                        <div key={sheet.id} className="flex items-center justify-between p-3 border rounded-md">
-                          <div>
-                            <p className="font-medium">{sheet.title}</p>
-                            <p className="text-sm text-muted-foreground">{itemCount} 題</p>
+                        <div key={sheet.id} className="p-3 border rounded-md space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium">{sheet.title}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {itemCount} 題
+                                {materialCount > 0 && <span className="ml-2">| {materialCount} 份分析材料</span>}
+                              </p>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => copyLink(sheet.id)}
+                                title="複製學生連結"
+                                data-testid={`button-copy-${sheet.id}`}
+                              >
+                                <Copy className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => window.open(`/sheet/${sheet.id}`, "_blank")}
+                                title="預覽學生頁面"
+                                data-testid={`button-preview-${sheet.id}`}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => navigate(`/admin/sheet-submissions/${sheet.id}`)}
+                                title="查看提交紀錄"
+                                data-testid={`button-submissions-${sheet.id}`}
+                              >
+                                <BarChart3 className="h-4 w-4" />
+                              </Button>
+                              <input
+                                type="file"
+                                accept="image/*,.pdf"
+                                multiple
+                                className="hidden"
+                                ref={materialInputRef}
+                                onChange={(e) => {
+                                  if (e.target.files && e.target.files.length > 0) {
+                                    handleMaterialUpload(sheet.id, e.target.files);
+                                    e.target.value = "";
+                                  }
+                                }}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  materialInputRef.current?.click();
+                                }}
+                                disabled={uploadingMaterialsFor === sheet.id}
+                                title="上傳分析材料（答案分析/難點筆記）"
+                              >
+                                {uploadingMaterialsFor === sheet.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => {
+                                  if (confirm("確定要刪除此答案卷嗎？")) {
+                                    deleteMutation.mutate(sheet.id);
+                                  }
+                                }}
+                                data-testid={`button-delete-${sheet.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
                           </div>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => copyLink(sheet.id)}
-                              title="複製學生連結"
-                              data-testid={`button-copy-${sheet.id}`}
-                            >
-                              <Copy className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => window.open(`/sheet/${sheet.id}`, "_blank")}
-                              title="預覽學生頁面"
-                              data-testid={`button-preview-${sheet.id}`}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => navigate(`/admin/sheet-submissions/${sheet.id}`)}
-                              title="查看提交紀錄"
-                              data-testid={`button-submissions-${sheet.id}`}
-                            >
-                              <BarChart3 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => {
-                                if (confirm("確定要刪除此答案卷嗎？")) {
-                                  deleteMutation.mutate(sheet.id);
-                                }
-                              }}
-                              data-testid={`button-delete-${sheet.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
+                          {materialCount > 0 && (
+                            <div className="flex gap-2 flex-wrap">
+                              {JSON.parse((sheet as any).analysisMaterialsJson).map((mat: any, idx: number) => (
+                                <div key={idx} className="flex items-center gap-1 bg-muted/50 rounded px-2 py-1 text-xs">
+                                  <FileText className="h-3 w-3" />
+                                  <span className="max-w-[100px] truncate">{mat.filename}</span>
+                                  <button onClick={() => handleDeleteMaterial(sheet.id, idx)} className="text-muted-foreground hover:text-destructive">
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}

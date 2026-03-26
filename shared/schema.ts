@@ -175,6 +175,7 @@ export const answerSheetSessions = pgTable("answer_sheet_sessions", {
   title: text("title").notNull(),
   paperLink: text("paper_link").notNull(),
   itemsJson: text("items_json").notNull(), // JSON string of QuestionItem[]
+  analysisMaterialsJson: text("analysis_materials_json"), // JSON: [{ filename, base64Data, mimeType }]
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -206,10 +207,23 @@ export const answerSheetSubmissions = pgTable("answer_sheet_submissions", {
   submittedAt: timestamp("submitted_at").notNull().defaultNow(),
 });
 
+export const studentReports = pgTable("student_reports", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  submissionId: integer("submission_id").notNull().references(() => answerSheetSubmissions.id, { onDelete: "cascade" }),
+  sessionId: integer("session_id").notNull().references(() => answerSheetSessions.id, { onDelete: "cascade" }),
+  reportContent: text("report_content").notNull().default(""),
+  status: text("status").notNull().default("pending"), // pending | generating | completed | failed
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
 export const insertAnswerSheetSessionSchema = createInsertSchema(answerSheetSessions).omit({ id: true, createdAt: true });
 export const insertAnswerSheetSubmissionSchema = createInsertSchema(answerSheetSubmissions).omit({ id: true, submittedAt: true });
+export const insertStudentReportSchema = createInsertSchema(studentReports).omit({ id: true, createdAt: true });
 
 export type InsertAnswerSheetSession = z.infer<typeof insertAnswerSheetSessionSchema>;
 export type InsertAnswerSheetSubmission = z.infer<typeof insertAnswerSheetSubmissionSchema>;
+export type InsertStudentReport = z.infer<typeof insertStudentReportSchema>;
 export type AnswerSheetSession = typeof answerSheetSessions.$inferSelect;
 export type AnswerSheetSubmission = typeof answerSheetSubmissions.$inferSelect;
+export type StudentReport = typeof studentReports.$inferSelect;

@@ -1,10 +1,11 @@
-import { 
+import {
   exams, questions, studentSubmissions, answerDetails, textSubmissions, textSentences, textAnswerDetails,
-  answerSheetSessions, answerSheetSubmissions,
+  answerSheetSessions, answerSheetSubmissions, studentReports,
   type Exam, type Question, type StudentSubmission, type AnswerDetail, type TextSubmission, type TextSentence, type TextAnswerDetail,
   type InsertExam, type InsertQuestion, type InsertSubmission, type InsertAnswerDetail, type InsertTextSentence, type InsertTextAnswerDetail,
   type ExamWithQuestions, type ExamWithSentences,
-  type AnswerSheetSession, type AnswerSheetSubmission, type InsertAnswerSheetSession, type InsertAnswerSheetSubmission
+  type AnswerSheetSession, type AnswerSheetSubmission, type InsertAnswerSheetSession, type InsertAnswerSheetSubmission,
+  type StudentReport, type InsertStudentReport
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc } from "drizzle-orm";
@@ -73,6 +74,11 @@ export interface IStorage {
   createAnswerSheetSubmission(submission: InsertAnswerSheetSubmission): Promise<AnswerSheetSubmission>;
   getAnswerSheetSubmissionsBySessionId(sessionId: number): Promise<AnswerSheetSubmission[]>;
   deleteAnswerSheetSubmission(id: number): Promise<boolean>;
+
+  // Student Reports
+  createStudentReport(data: InsertStudentReport): Promise<StudentReport>;
+  getStudentReportBySubmissionId(submissionId: number): Promise<StudentReport | undefined>;
+  updateStudentReport(id: number, data: Partial<{ reportContent: string; status: string; completedAt: Date }>): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -343,6 +349,21 @@ export class DatabaseStorage implements IStorage {
   async deleteAnswerSheetSubmission(id: number): Promise<boolean> {
     const result = await db.delete(answerSheetSubmissions).where(eq(answerSheetSubmissions.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Student Reports
+  async createStudentReport(data: InsertStudentReport): Promise<StudentReport> {
+    const [created] = await db.insert(studentReports).values(data).returning();
+    return created;
+  }
+
+  async getStudentReportBySubmissionId(submissionId: number): Promise<StudentReport | undefined> {
+    const [report] = await db.select().from(studentReports).where(eq(studentReports.submissionId, submissionId));
+    return report;
+  }
+
+  async updateStudentReport(id: number, data: Partial<{ reportContent: string; status: string; completedAt: Date }>): Promise<void> {
+    await db.update(studentReports).set(data).where(eq(studentReports.id, id));
   }
 }
 
