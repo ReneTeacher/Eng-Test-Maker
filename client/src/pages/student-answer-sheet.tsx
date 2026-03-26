@@ -89,11 +89,6 @@ export default function StudentAnswerSheet() {
     onSuccess: (data) => {
       setResult(data);
       toast({ title: "提交成功" });
-      // Start polling for AI report
-      if (data.submissionId) {
-        setReportStatus("pending");
-        startReportPolling(data.submissionId);
-      }
     },
     onError: () => {
       toast({ title: "提交失敗", variant: "destructive" });
@@ -272,31 +267,7 @@ export default function StudentAnswerSheet() {
               )}
             </div>
 
-            {/* AI Learning Report */}
-            <div className="mt-6 border rounded-md p-4 bg-muted/30">
-              <div className="flex items-center gap-2 mb-3">
-                <BookOpen className="h-4 w-4 text-primary" />
-                <h4 className="font-semibold text-sm">AI 學習分析報告</h4>
-              </div>
-              {(reportStatus === "none" || reportStatus === "pending" || reportStatus === "generating") && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>{reportStatus === "generating" ? "AI 正在分析你的答題表現..." : "報告生成中..."}</span>
-                </div>
-              )}
-              {reportStatus === "completed" && reportContent && (
-                <div className="text-sm leading-relaxed whitespace-pre-wrap">{reportContent}</div>
-              )}
-              {reportStatus === "failed" && (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">報告生成失敗</p>
-                  <Button size="sm" variant="outline" onClick={handleRegenerateReport}>
-                    <RefreshCw className="h-3 w-3 mr-1" />
-                    重新生成
-                  </Button>
-                </div>
-              )}
-            </div>
+            {/* AI Learning Report - temporarily hidden */}
           </CardContent>
         </Card>
       </div>
