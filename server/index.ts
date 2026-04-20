@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
+import { autoMigrate } from "./auto-migrate";
 
 const app = express();
 const httpServer = createServer(app);
@@ -69,8 +70,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Sync new columns before anything else touches the DB
+  try {
+    await autoMigrate();
+  } catch (error) {
+    console.error("Auto-migration error:", error);
+  }
+
   await registerRoutes(httpServer, app);
-  
+
   // Seed database with sample data
   try {
     await seedDatabase();
