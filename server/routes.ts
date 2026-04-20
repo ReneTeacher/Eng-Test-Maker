@@ -643,7 +643,7 @@ export async function registerRoutes(
         // Parse each line into word, pos, meaning
         const parsedVocabs: { word: string; pos: string; meaning: string }[] = [];
         for (let i = 0; i < vocabLines.length; i++) {
-          const parts = vocabLines[i].split("|").map((p: string) => p.trim());
+          const parts = vocabLines[i].split(/[|｜]/).map((p: string) => p.trim());
           if (parts.length !== 3) {
             res.status(400).json({
               message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning`
@@ -665,21 +665,27 @@ export async function registerRoutes(
         let defRatio = typeof definitionRatio === "number" ? definitionRatio : 20;
         if (defRatio < 0) defRatio = 0;
         if (defRatio > 99) defRatio = 99;
-        let parsedDefinitions: string[] = [];
+        let parsedDefinitions: { word: string; def: string }[] = [];
         if (hasDef) {
           if (!definitions || typeof definitions !== "string") {
             res.status(400).json({ message: "Definitions are required when 背默詞解 is enabled" });
             return;
           }
-          parsedDefinitions = definitions
+          const defLines = definitions
             .split("\n")
             .map((line: string) => line.trim())
             .filter((line: string) => line.length > 0);
-          if (parsedDefinitions.length !== parsedVocabs.length) {
-            res.status(400).json({
-              message: `Definition count (${parsedDefinitions.length}) must match vocab count (${parsedVocabs.length})`,
-            });
+          if (defLines.length === 0) {
+            res.status(400).json({ message: "Please add at least one definition entry" });
             return;
+          }
+          for (let i = 0; i < defLines.length; i++) {
+            const dParts = defLines[i].split(/[|｜]/).map((p: string) => p.trim());
+            if (dParts.length !== 2 || !dParts[0] || !dParts[1]) {
+              res.status(400).json({ message: `Definition line ${i + 1} is invalid. Expected format: Word | Definition` });
+              return;
+            }
+            parsedDefinitions.push({ word: dParts[0], def: dParts[1] });
           }
         }
 
@@ -699,16 +705,12 @@ export async function registerRoutes(
 
         const vocabPer = Math.floor(vocabTotalPoints / parsedVocabs.length);
         const vocabRem = vocabTotalPoints % parsedVocabs.length;
-        const defPer = hasDef ? Math.floor(defTotalPoints / parsedVocabs.length) : 0;
-        const defRem = hasDef ? defTotalPoints % parsedVocabs.length : 0;
 
-        const questionData = parsedVocabs.map((vocab, index) => {
+        const vocabQuestionData = parsedVocabs.map((vocab, index) => {
           const qTotal = vocabPer + (index < vocabRem ? 1 : 0);
           const wordScore = Math.floor(qTotal * 0.5);
           const posScore = Math.floor(qTotal * 0.25);
           const meaningScore = qTotal - wordScore - posScore;
-          const definitionScore = hasDef ? defPer + (index < defRem ? 1 : 0) : 0;
-
           return {
             examId: exam.id,
             wordOrder: index + 1,
@@ -718,11 +720,29 @@ export async function registerRoutes(
             wordScore,
             posScore,
             meaningScore,
-            correctDefinition: hasDef ? parsedDefinitions[index] : null,
-            definitionScore,
+            correctDefinition: null,
+            definitionScore: 0,
           };
         });
-        await storage.createQuestions(questionData as any);
+
+        const defQuestionData = hasDef && parsedDefinitions.length > 0 ? (() => {
+          const defPer = Math.floor(defTotalPoints / parsedDefinitions.length);
+          const defRemainder = defTotalPoints % parsedDefinitions.length;
+          return parsedDefinitions.map((defEntry, index) => ({
+            examId: exam.id,
+            wordOrder: parsedVocabs.length + index + 1,
+            correctWord: defEntry.word,
+            correctPos: "",
+            correctMeaning: "",
+            wordScore: 0,
+            posScore: 0,
+            meaningScore: 0,
+            correctDefinition: defEntry.def,
+            definitionScore: defPer + (index < defRemainder ? 1 : 0),
+          }));
+        })() : [];
+
+        await storage.createQuestions([...vocabQuestionData, ...defQuestionData] as any);
 
         res.json(exam);
       }
@@ -810,7 +830,7 @@ export async function registerRoutes(
 
         const parsedVocabs: { word: string; pos: string; meaning: string }[] = [];
         for (let i = 0; i < vocabLines.length; i++) {
-          const parts = vocabLines[i].split("|").map((p: string) => p.trim());
+          const parts = vocabLines[i].split(/[|｜]/).map((p: string) => p.trim());
           if (parts.length !== 3) {
             res.status(400).json({ message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning` });
             return;
@@ -823,21 +843,27 @@ export async function registerRoutes(
         let defRatio = typeof definitionRatio === "number" ? definitionRatio : 20;
         if (defRatio < 0) defRatio = 0;
         if (defRatio > 99) defRatio = 99;
-        let parsedDefinitions: string[] = [];
+        let parsedDefinitions: { word: string; def: string }[] = [];
         if (hasDef) {
           if (!definitions || typeof definitions !== "string") {
             res.status(400).json({ message: "Definitions are required when 背默詞解 is enabled" });
             return;
           }
-          parsedDefinitions = definitions
+          const defLines = definitions
             .split("\n")
             .map((line: string) => line.trim())
             .filter((line: string) => line.length > 0);
-          if (parsedDefinitions.length !== parsedVocabs.length) {
-            res.status(400).json({
-              message: `Definition count (${parsedDefinitions.length}) must match vocab count (${parsedVocabs.length})`,
-            });
+          if (defLines.length === 0) {
+            res.status(400).json({ message: "Please add at least one definition entry" });
             return;
+          }
+          for (let i = 0; i < defLines.length; i++) {
+            const dParts = defLines[i].split(/[|｜]/).map((p: string) => p.trim());
+            if (dParts.length !== 2 || !dParts[0] || !dParts[1]) {
+              res.status(400).json({ message: `Definition line ${i + 1} is invalid. Expected format: Word | Definition` });
+              return;
+            }
+            parsedDefinitions.push({ word: dParts[0], def: dParts[1] });
           }
         }
 
@@ -856,16 +882,12 @@ export async function registerRoutes(
         const vocabTotalPoints = totalPoints - defTotalPoints;
         const vocabPer = Math.floor(vocabTotalPoints / parsedVocabs.length);
         const vocabRem = vocabTotalPoints % parsedVocabs.length;
-        const defPer = hasDef ? Math.floor(defTotalPoints / parsedVocabs.length) : 0;
-        const defRem = hasDef ? defTotalPoints % parsedVocabs.length : 0;
 
-        const questionData = parsedVocabs.map((vocab, index) => {
+        const vocabQuestionData = parsedVocabs.map((vocab, index) => {
           const qTotal = vocabPer + (index < vocabRem ? 1 : 0);
           const wordScore = Math.floor(qTotal * 0.5);
           const posScore = Math.floor(qTotal * 0.25);
           const meaningScore = qTotal - wordScore - posScore;
-          const definitionScore = hasDef ? defPer + (index < defRem ? 1 : 0) : 0;
-
           return {
             examId,
             wordOrder: index + 1,
@@ -875,11 +897,29 @@ export async function registerRoutes(
             wordScore,
             posScore,
             meaningScore,
-            correctDefinition: hasDef ? parsedDefinitions[index] : null,
-            definitionScore,
+            correctDefinition: null,
+            definitionScore: 0,
           };
         });
-        await storage.createQuestions(questionData as any);
+
+        const defQuestionData = hasDef && parsedDefinitions.length > 0 ? (() => {
+          const defPer = Math.floor(defTotalPoints / parsedDefinitions.length);
+          const defRemainder = defTotalPoints % parsedDefinitions.length;
+          return parsedDefinitions.map((defEntry, index) => ({
+            examId,
+            wordOrder: parsedVocabs.length + index + 1,
+            correctWord: defEntry.word,
+            correctPos: "",
+            correctMeaning: "",
+            wordScore: 0,
+            posScore: 0,
+            meaningScore: 0,
+            correctDefinition: defEntry.def,
+            definitionScore: defPer + (index < defRemainder ? 1 : 0),
+          }));
+        })() : [];
+
+        await storage.createQuestions([...vocabQuestionData, ...defQuestionData] as any);
 
         // RE-CALCULATE SCORES for all submissions of this exam using weighted scoring
         const submissions = await storage.getSubmissionsByExamId(examId);

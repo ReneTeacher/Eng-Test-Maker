@@ -48,15 +48,17 @@ export default function AdminCreateExam() {
         }
       } else {
         const sorted = existingExam.questions.sort((a, b) => a.wordOrder - b.wordOrder);
-        const vocabString = sorted
+        const vocabQuestions = sorted.filter(q => q.wordScore > 0);
+        const defQuestionsLoaded = sorted.filter(q => q.wordScore === 0 && (q as any).definitionScore > 0);
+        const vocabString = vocabQuestions
           .map(q => `${q.correctWord} | ${q.correctPos} | ${q.correctMeaning}`)
           .join("\n");
         setVocabularies(vocabString);
-        if ((existingExam as any).hasDefinitionDictation) {
+        if ((existingExam as any).hasDefinitionDictation && defQuestionsLoaded.length > 0) {
           setHasDefinitionDictation(true);
           setDefinitionRatio((existingExam as any).definitionRatio ?? 20);
-          const defString = sorted
-            .map(q => (q as any).correctDefinition || "")
+          const defString = defQuestionsLoaded
+            .map(q => `${q.correctWord} | ${(q as any).correctDefinition || ""}`)
             .join("\n");
           setDefinitions(defString);
         }
@@ -122,18 +124,17 @@ export default function AdminCreateExam() {
         return;
       }
       if (hasDefinitionDictation) {
-        const vocabCount = vocabularies.split("\n").map(l => l.trim()).filter(l => l.length > 0).length;
         const defLines = definitions.split("\n").map(l => l.trim()).filter(l => l.length > 0);
         if (defLines.length === 0) {
-          toast({ title: "請輸入 definitions 或關閉背默詞解", variant: "destructive" });
+          toast({ title: "請輸入 Definitions 或關閉背默詞解", variant: "destructive" });
           return;
         }
-        if (defLines.length !== vocabCount) {
-          toast({
-            title: `Definitions 行數 (${defLines.length}) 必須與 vocab 行數 (${vocabCount}) 一致`,
-            variant: "destructive",
-          });
-          return;
+        for (let i = 0; i < defLines.length; i++) {
+          const parts = defLines[i].split(/[|｜]/);
+          if (parts.length !== 2 || !parts[0].trim() || !parts[1].trim()) {
+            toast({ title: `Definition 第 ${i + 1} 行格式錯誤，需為: Word | Definition`, variant: "destructive" });
+            return;
+          }
         }
         if (definitionRatio < 1 || definitionRatio > 99) {
           toast({ title: "定義佔比需介於 1–99", variant: "destructive" });
@@ -173,7 +174,7 @@ export default function AdminCreateExam() {
     .map(line => line.trim())
     .filter(line => line.length > 0)
     .map(line => {
-      const parts = line.split("|").map(p => p.trim());
+      const parts = line.split(/[|｜]/).map(p => p.trim());
       if (parts.length === 3) {
         return { word: parts[0], pos: parts[1], meaning: parts[2], valid: true };
       }
@@ -389,18 +390,18 @@ export default function AdminCreateExam() {
                       <div className="space-y-2">
                         <Label htmlFor="definitions" className="flex items-center gap-2">
                           <FileText className="w-4 h-4 text-muted-foreground" />
-                          Definitions（每行一個，按行順序對應上方 vocab 列表）
+                          Definition Words（格式: Word | Definition，每行一個，可與 Vocab 列表無關）
                         </Label>
                         <Textarea
                           id="definitions"
                           data-testid="textarea-definitions"
-                          placeholder={"每行一個定義，行數必須與 vocab 列表一致\n\nExample:\nA round fruit that grows on trees.\nTo move fast on foot by moving both legs quickly.\nHappening or done with great speed."}
+                          placeholder={"每行一個，格式: Word | Definition\n\n例子:\napple | A round fruit that grows on trees.\nrun | To move fast on foot.\nquick | Moving with great speed."}
                           value={definitions}
                           onChange={(e) => setDefinitions(e.target.value)}
-                          className="min-h-[200px] text-sm"
+                          className="min-h-[200px] font-mono text-sm"
                         />
                         <p className="text-sm text-muted-foreground">
-                          評分方式與背默相同：逐字比對、拼字/標點/大小寫錯誤扣分
+                          學生只看到單字，須默寫完整英文定義。評分與背默相同：逐字比對。
                         </p>
                       </div>
                     </>

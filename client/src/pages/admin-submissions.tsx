@@ -636,71 +636,73 @@ export default function AdminSubmissions() {
                       return (
                         <Card key={question.id} className="border">
                           <CardContent className="pt-4 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium">詞彙 {question.wordOrder}</span>
-                              {isEditMode ? (
-                                <div className="flex items-center gap-2">
-                                  <Input
-                                    type="number"
-                                    min={0}
-                                    max={maxScore}
-                                    value={editScores[answer?.id || 0] || 0}
-                                    onChange={(e) => setEditScores(prev => ({
-                                      ...prev,
-                                      [answer?.id || 0]: Number(e.target.value)
-                                    }))}
-                                    className="w-20 h-8"
-                                  />
-                                  <span className="text-sm text-muted-foreground">/ {maxScore}</span>
-                                </div>
-                              ) : (
-                                <Badge variant={answer?.earnedScore === maxScore ? "default" : "secondary"}>
-                                  {answer?.earnedScore || 0} / {maxScore}
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="grid grid-cols-3 gap-4 text-sm">
-                              <div>
-                                <p className="text-muted-foreground mb-1">英文詞彙</p>
-                                <p className="text-green-600 dark:text-green-400">{question.correctWord}</p>
-                                <p className={answer?.wordCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                                  {answer?.studentWord || "-"} {answer?.wordCorrect ? <Check className="inline w-3 h-3" /> : <X className="inline w-3 h-3" />}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground mb-1">詞性</p>
-                                <p className="text-green-600 dark:text-green-400">{question.correctPos}</p>
-                                <p className={answer?.posCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                                  {answer?.studentPos || "-"} {answer?.posCorrect ? <Check className="inline w-3 h-3" /> : <X className="inline w-3 h-3" />}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-muted-foreground mb-1">中文意思</p>
-                                <p className="text-green-600 dark:text-green-400">{question.correctMeaning}</p>
-                                <p className={answer?.meaningCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
-                                  {answer?.studentMeaning || "-"} {answer?.meaningCorrect ? <Check className="inline w-3 h-3" /> : <X className="inline w-3 h-3" />}
-                                </p>
-                              </div>
-                            </div>
-                            {(question as any).correctDefinition && (question as any).definitionScore > 0 && (
-                              <div className="pt-3 border-t mt-3 space-y-1 text-sm">
+                            {question.wordScore === 0 && (question as any).definitionScore > 0 ? (
+                              <>
                                 <div className="flex items-center justify-between">
-                                  <p className="text-muted-foreground">Definition (背默)</p>
-                                  <Badge variant="secondary">
+                                  <span className="font-medium">定義 <span className="text-primary">{question.correctWord}</span></span>
+                                  <Badge variant={(answer as any)?.definitionEarnedScore === (question as any).definitionScore ? "default" : "secondary"}>
                                     {(answer as any)?.definitionEarnedScore || 0} / {(question as any).definitionScore}
                                   </Badge>
                                 </div>
-                                <p className="text-green-600 dark:text-green-400 whitespace-pre-wrap">{(question as any).correctDefinition}</p>
-                                <p className="text-sm whitespace-pre-wrap">
-                                  <span className="text-muted-foreground">學生：</span>
-                                  {(answer as any)?.studentDefinition || "-"}
-                                </p>
-                                {(answer as any)?.definitionFeedback && (
-                                  <p className="text-xs text-muted-foreground italic">
-                                    {(answer as any).definitionFeedback}
-                                  </p>
-                                )}
-                              </div>
+                                <div className="space-y-1 text-sm">
+                                  <p className="text-muted-foreground">正確定義：</p>
+                                  <p className="text-green-600 dark:text-green-400 whitespace-pre-wrap">{(question as any).correctDefinition}</p>
+                                  <p className="text-muted-foreground mt-2">學生答案：</p>
+                                  <p className="whitespace-pre-wrap">{(answer as any)?.studentDefinition || "-"}</p>
+                                  {(answer as any)?.definitionFeedback && (
+                                    <p className="text-xs text-muted-foreground italic mt-1">{(answer as any).definitionFeedback}</p>
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium">詞彙 {question.wordOrder}</span>
+                                  {isEditMode ? (
+                                    <div className="flex items-center gap-2">
+                                      <Input
+                                        type="number"
+                                        min={0}
+                                        max={maxScore}
+                                        value={editScores[answer?.id || 0] || 0}
+                                        onChange={(e) => setEditScores(prev => ({
+                                          ...prev,
+                                          [answer?.id || 0]: Number(e.target.value)
+                                        }))}
+                                        className="w-20 h-8"
+                                      />
+                                      <span className="text-sm text-muted-foreground">/ {maxScore}</span>
+                                    </div>
+                                  ) : (
+                                    <Badge variant={answer?.earnedScore === maxScore ? "default" : "secondary"}>
+                                      {answer?.earnedScore || 0} / {maxScore}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-3 gap-4 text-sm">
+                                  <div>
+                                    <p className="text-muted-foreground mb-1">英文詞彙</p>
+                                    <p className="text-green-600 dark:text-green-400">{question.correctWord}</p>
+                                    <p className={answer?.wordCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                                      {answer?.studentWord || "-"} {answer?.wordCorrect ? <Check className="inline w-3 h-3" /> : <X className="inline w-3 h-3" />}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground mb-1">詞性</p>
+                                    <p className="text-green-600 dark:text-green-400">{question.correctPos}</p>
+                                    <p className={answer?.posCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                                      {answer?.studentPos || "-"} {answer?.posCorrect ? <Check className="inline w-3 h-3" /> : <X className="inline w-3 h-3" />}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <p className="text-muted-foreground mb-1">中文意思</p>
+                                    <p className="text-green-600 dark:text-green-400">{question.correctMeaning}</p>
+                                    <p className={answer?.meaningCorrect ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>
+                                      {answer?.studentMeaning || "-"} {answer?.meaningCorrect ? <Check className="inline w-3 h-3" /> : <X className="inline w-3 h-3" />}
+                                    </p>
+                                  </div>
+                                </div>
+                              </>
                             )}
                           </CardContent>
                         </Card>

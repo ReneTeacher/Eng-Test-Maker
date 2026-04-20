@@ -355,13 +355,12 @@ export default function StudentExam() {
       }
     } else {
       const vocabExam = activeExam as ExamWithQuestions;
-      const hasDefDictation = !!(vocabExam as any).hasDefinitionDictation;
       const submissionAnswers = (vocabExam.questions || []).map(q => ({
         questionId: q.id,
         studentWord: answers[q.id]?.word?.trim() || "",
         studentPos: answers[q.id]?.pos?.trim() || "",
         studentMeaning: answers[q.id]?.meaning?.trim() || "",
-        studentDefinition: hasDefDictation ? (answers[q.id]?.definition?.trim() || "") : undefined,
+        studentDefinition: answers[q.id]?.definition?.trim() || "",
       }));
 
       submitMutation.mutate({
@@ -556,66 +555,80 @@ export default function StudentExam() {
               ) : (
                 (() => {
                   const vocabExam = activeExam as ExamWithQuestions;
-                  const hasDefDictation = !!(vocabExam as any).hasDefinitionDictation;
-                  return vocabExam.questions
-                    .sort((a, b) => a.wordOrder - b.wordOrder)
-                    .map((question, index) => (
-                    <Card key={question.id}>
-                      <CardContent className="pt-4 space-y-4">
-                        <div className="font-medium">單字 {index + 1}</div>
-                        <div className="grid grid-cols-1 gap-4">
-                          <Input
-                            placeholder="English Word"
-                            value={answers[question.id]?.word || ""}
-                            onChange={(e) => handleAnswerChange(question.id, "word", e.target.value)}
-                            onPaste={handlePaste}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                          />
-                          <Input
-                            placeholder="Part of Speech"
-                            value={answers[question.id]?.pos || ""}
-                            onChange={(e) => handleAnswerChange(question.id, "pos", e.target.value)}
-                            onPaste={handlePaste}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                          />
-                          <Input
-                            placeholder="Chinese Meaning"
-                            value={answers[question.id]?.meaning || ""}
-                            onChange={(e) => handleAnswerChange(question.id, "meaning", e.target.value)}
-                            onPaste={handlePaste}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                          />
-                          {hasDefDictation && (
-                            <div className="space-y-1">
-                              <Label className="text-xs text-muted-foreground">
-                                Definition（默寫此單字的英文定義）
-                              </Label>
-                              <Textarea
-                                placeholder="Type the full English definition..."
-                                value={answers[question.id]?.definition || ""}
-                                onChange={(e) => handleAnswerChange(question.id, "definition", e.target.value)}
+                  const allQuestions = vocabExam.questions.sort((a, b) => a.wordOrder - b.wordOrder);
+                  const vocabQuestions = allQuestions.filter(q => q.wordScore > 0);
+                  const defQuestions = allQuestions.filter(q => q.wordScore === 0 && (q as any).definitionScore > 0);
+                  return (
+                    <>
+                      {vocabQuestions.map((question, index) => (
+                        <Card key={question.id}>
+                          <CardContent className="pt-4 space-y-4">
+                            <div className="font-medium">單字 {index + 1}</div>
+                            <div className="grid grid-cols-1 gap-4">
+                              <Input
+                                placeholder="English Word"
+                                value={answers[question.id]?.word || ""}
+                                onChange={(e) => handleAnswerChange(question.id, "word", e.target.value)}
                                 onPaste={handlePaste}
                                 autoComplete="off"
                                 autoCorrect="off"
                                 autoCapitalize="off"
                                 spellCheck={false}
-                                className="min-h-[80px] text-sm"
+                              />
+                              <Input
+                                placeholder="Part of Speech"
+                                value={answers[question.id]?.pos || ""}
+                                onChange={(e) => handleAnswerChange(question.id, "pos", e.target.value)}
+                                onPaste={handlePaste}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
+                              />
+                              <Input
+                                placeholder="Chinese Meaning"
+                                value={answers[question.id]?.meaning || ""}
+                                onChange={(e) => handleAnswerChange(question.id, "meaning", e.target.value)}
+                                onPaste={handlePaste}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck={false}
                               />
                             </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ));
+                          </CardContent>
+                        </Card>
+                      ))}
+                      {defQuestions.length > 0 && (
+                        <>
+                          <div className="pt-2 pb-1">
+                            <h3 className="font-semibold text-base">詞解默寫 Definition Dictation</h3>
+                            <p className="text-sm text-muted-foreground">默寫以下每個英文單字的完整定義</p>
+                          </div>
+                          {defQuestions.map((question, index) => (
+                            <Card key={question.id}>
+                              <CardContent className="pt-4 space-y-3">
+                                <div className="font-medium">
+                                  定義 {index + 1}: <span className="text-primary font-bold">{question.correctWord}</span>
+                                </div>
+                                <Textarea
+                                  placeholder="Write the full English definition..."
+                                  value={answers[question.id]?.definition || ""}
+                                  onChange={(e) => handleAnswerChange(question.id, "definition", e.target.value)}
+                                  onPaste={handlePaste}
+                                  autoComplete="off"
+                                  autoCorrect="off"
+                                  autoCapitalize="off"
+                                  spellCheck={false}
+                                  className="min-h-[80px] text-sm"
+                                />
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </>
+                      )}
+                    </>
+                  );
                 })()
               )}
 
