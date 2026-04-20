@@ -559,7 +559,7 @@ export async function registerRoutes(
   // Create exam
   app.post("/api/exams", async (req, res) => {
     try {
-      const { title, vocabularies, correctText, isActive, examType, submissionMode } = req.body;
+      const { title, vocabularies, definitions, correctText, isActive, examType, submissionMode, hasDefinitionDictation, definitionRatio } = req.body;
 
       if (!title || typeof title !== "string" || !title.trim()) {
         res.status(400).json({ message: "Title is required" });
@@ -645,39 +645,69 @@ export async function registerRoutes(
         for (let i = 0; i < vocabLines.length; i++) {
           const parts = vocabLines[i].split("|").map((p: string) => p.trim());
           if (parts.length !== 3) {
-            res.status(400).json({ 
-              message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning` 
+            res.status(400).json({
+              message: `Line ${i + 1} is invalid. Expected format: Word | POS | Meaning`
             });
             return;
           }
           const [word, pos, meaning] = parts;
           if (!word || !pos || !meaning) {
-            res.status(400).json({ 
-              message: `Line ${i + 1} has empty fields. All three parts are required.` 
+            res.status(400).json({
+              message: `Line ${i + 1} has empty fields. All three parts are required.`
             });
             return;
           }
           parsedVocabs.push({ word, pos, meaning });
         }
 
-        // Create exam
-        const exam = await storage.createExam({ 
-          title: title.trim(), 
-          isActive: isActive ?? false,
-          examType: "vocab"
-        });
+        // Parse definitions if dictation mode is enabled
+        const hasDef = !!hasDefinitionDictation;
+        let defRatio = typeof definitionRatio === "number" ? definitionRatio : 20;
+        if (defRatio < 0) defRatio = 0;
+        if (defRatio > 99) defRatio = 99;
+        let parsedDefinitions: string[] = [];
+        if (hasDef) {
+          if (!definitions || typeof definitions !== "string") {
+            res.status(400).json({ message: "Definitions are required when 背默詞解 is enabled" });
+            return;
+          }
+          parsedDefinitions = definitions
+            .split("\n")
+            .map((line: string) => line.trim())
+            .filter((line: string) => line.length > 0);
+          if (parsedDefinitions.length !== parsedVocabs.length) {
+            res.status(400).json({
+              message: `Definition count (${parsedDefinitions.length}) must match vocab count (${parsedVocabs.length})`,
+            });
+            return;
+          }
+        }
 
-        // Create questions
+        // Create exam
+        const exam = await storage.createExam({
+          title: title.trim(),
+          isActive: isActive ?? false,
+          examType: "vocab",
+          hasDefinitionDictation: hasDef,
+          definitionRatio: hasDef ? defRatio : 20,
+        } as any);
+
+        // Create questions — split 100 between vocab part and definition part
         const totalPoints = 100;
-        const pointsPerQuestion = Math.floor(totalPoints / parsedVocabs.length);
-        const remainder = totalPoints % parsedVocabs.length;
+        const defTotalPoints = hasDef ? defRatio : 0;
+        const vocabTotalPoints = totalPoints - defTotalPoints;
+
+        const vocabPer = Math.floor(vocabTotalPoints / parsedVocabs.length);
+        const vocabRem = vocabTotalPoints % parsedVocabs.length;
+        const defPer = hasDef ? Math.floor(defTotalPoints / parsedVocabs.length) : 0;
+        const defRem = hasDef ? defTotalPoints % parsedVocabs.length : 0;
 
         const questionData = parsedVocabs.map((vocab, index) => {
-          const qTotal = pointsPerQuestion + (index < remainder ? 1 : 0);
-          // Distribute question points: Word(50%), POS(25%), Meaning(25%)
+          const qTotal = vocabPer + (index < vocabRem ? 1 : 0);
           const wordScore = Math.floor(qTotal * 0.5);
           const posScore = Math.floor(qTotal * 0.25);
           const meaningScore = qTotal - wordScore - posScore;
+          const definitionScore = hasDef ? defPer + (index < defRem ? 1 : 0) : 0;
 
           return {
             examId: exam.id,
@@ -688,9 +718,11 @@ export async function registerRoutes(
             wordScore,
             posScore,
             meaningScore,
+            correctDefinition: hasDef ? parsedDefinitions[index] : null,
+            definitionScore,
           };
         });
-        await storage.createQuestions(questionData);
+        await storage.createQuestions(questionData as any);
 
         res.json(exam);
       }
@@ -704,7 +736,7 @@ export async function registerRoutes(
   app.patch("/api/exams/:id", async (req, res) => {
     try {
       const examId = parseInt(req.params.id);
-      const { isActive, title, vocabularies, correctText, examType } = req.body;
+      const { isActive, title, vocabularies, definitions, correctText, examType, hasDefinitionDictation, definitionRatio } = req.body;
 
       // Get current exam to check its type
       const currentExam = await storage.getExamById(examId);
@@ -786,20 +818,53 @@ export async function registerRoutes(
           parsedVocabs.push({ word: parts[0], pos: parts[1], meaning: parts[2] });
         }
 
-        const updated = await storage.updateExam(examId, { title, isActive: isActive ?? currentExam.isActive });
-        
+        // Parse definitions if dictation mode is enabled
+        const hasDef = !!hasDefinitionDictation;
+        let defRatio = typeof definitionRatio === "number" ? definitionRatio : 20;
+        if (defRatio < 0) defRatio = 0;
+        if (defRatio > 99) defRatio = 99;
+        let parsedDefinitions: string[] = [];
+        if (hasDef) {
+          if (!definitions || typeof definitions !== "string") {
+            res.status(400).json({ message: "Definitions are required when 背默詞解 is enabled" });
+            return;
+          }
+          parsedDefinitions = definitions
+            .split("\n")
+            .map((line: string) => line.trim())
+            .filter((line: string) => line.length > 0);
+          if (parsedDefinitions.length !== parsedVocabs.length) {
+            res.status(400).json({
+              message: `Definition count (${parsedDefinitions.length}) must match vocab count (${parsedVocabs.length})`,
+            });
+            return;
+          }
+        }
+
+        const updated = await storage.updateExam(examId, {
+          title,
+          isActive: isActive ?? currentExam.isActive,
+          hasDefinitionDictation: hasDef,
+          definitionRatio: hasDef ? defRatio : 20,
+        } as any);
+
         // Remove old questions and create new ones
-        // In a real app we might want to map existing questions, but replacing is simpler for this format
         await storage.deleteQuestionsByExamId(examId);
+
         const totalPoints = 100;
-        const pointsPerQuestion = Math.floor(totalPoints / parsedVocabs.length);
-        const remainder = totalPoints % parsedVocabs.length;
+        const defTotalPoints = hasDef ? defRatio : 0;
+        const vocabTotalPoints = totalPoints - defTotalPoints;
+        const vocabPer = Math.floor(vocabTotalPoints / parsedVocabs.length);
+        const vocabRem = vocabTotalPoints % parsedVocabs.length;
+        const defPer = hasDef ? Math.floor(defTotalPoints / parsedVocabs.length) : 0;
+        const defRem = hasDef ? defTotalPoints % parsedVocabs.length : 0;
 
         const questionData = parsedVocabs.map((vocab, index) => {
-          const qTotal = pointsPerQuestion + (index < remainder ? 1 : 0);
+          const qTotal = vocabPer + (index < vocabRem ? 1 : 0);
           const wordScore = Math.floor(qTotal * 0.5);
           const posScore = Math.floor(qTotal * 0.25);
           const meaningScore = qTotal - wordScore - posScore;
+          const definitionScore = hasDef ? defPer + (index < defRem ? 1 : 0) : 0;
 
           return {
             examId,
@@ -810,9 +875,11 @@ export async function registerRoutes(
             wordScore,
             posScore,
             meaningScore,
+            correctDefinition: hasDef ? parsedDefinitions[index] : null,
+            definitionScore,
           };
         });
-        await storage.createQuestions(questionData);
+        await storage.createQuestions(questionData as any);
 
         // RE-CALCULATE SCORES for all submissions of this exam using weighted scoring
         const submissions = await storage.getSubmissionsByExamId(examId);
@@ -868,19 +935,34 @@ Respond in this exact JSON format only:
               if (wordCorrect) earnedScore += question.wordScore;
               if (posCorrect) earnedScore += question.posScore;
               if (meaningCorrect) earnedScore += question.meaningScore;
-              
-              newTotalScore += earnedScore;
-              
+
+              // Re-grade definition part if dictation is enabled (kept separate)
+              let definitionEarnedScore = 0;
+              let definitionFeedback: string | null = null;
+              if (hasDef && question.correctDefinition && question.definitionScore > 0) {
+                const scoreResult = computeSentenceScore(
+                  question.correctDefinition,
+                  (answer as any).studentDefinition || "",
+                  question.definitionScore
+                );
+                definitionEarnedScore = scoreResult.earned;
+                definitionFeedback = scoreResult.details.join("; ");
+              }
+
+              newTotalScore += earnedScore + definitionEarnedScore;
+
               const isCorrect = wordCorrect && posCorrect && meaningCorrect;
-              
+
               // Update individual answer correctness with all fields
-              await storage.updateAnswerDetail(answer.id, { 
+              await storage.updateAnswerDetail(answer.id, {
                 isCorrect,
                 wordCorrect,
                 posCorrect,
                 meaningCorrect,
                 earnedScore,
-              });
+                definitionEarnedScore,
+                definitionFeedback,
+              } as any);
             }
           }
 
@@ -1039,23 +1121,26 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
       const { examId, studentName, studentNumber, originalClass, mixedClass, answers } = parsed.data;
       const studentEmail = req.body.studentEmail as string | undefined;
 
-      // Get exam questions to compare answers
+      // Get exam and questions
+      const examRecord = await storage.getExamById(examId);
+      const hasDefDictation = !!(examRecord as any)?.hasDefinitionDictation;
       const questions = await storage.getQuestionsByExamId(examId);
-      
+
       // Calculate score with weighted scoring per part
-      // - English word and POS: case-insensitive
-      // - Chinese meaning: normalized comparison
       let totalScore = 0;
-      const answerDetailsList: { 
-        questionId: number; 
+      const answerDetailsList: {
+        questionId: number;
         studentWord: string;
         studentPos: string;
         studentMeaning: string;
+        studentDefinition: string;
         isCorrect: boolean;
         wordCorrect: boolean;
         posCorrect: boolean;
         meaningCorrect: boolean;
         earnedScore: number;
+        definitionEarnedScore: number;
+        definitionFeedback: string | null;
       }[] = [];
 
       for (const answer of answers) {
@@ -1103,21 +1188,38 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           if (wordCorrect) earnedScore += question.wordScore;
           if (posCorrect) earnedScore += question.posScore;
           if (meaningCorrect) earnedScore += question.meaningScore;
-          
-          totalScore += earnedScore;
-          
+
+          // Definition dictation grading (kept separate so earnedScore stays vocab-only)
+          const studentDefinition = (answer as any).studentDefinition || "";
+          let definitionEarnedScore = 0;
+          let definitionFeedback: string | null = null;
+          if (hasDefDictation && (question as any).correctDefinition && (question as any).definitionScore > 0) {
+            const scoreResult = computeSentenceScore(
+              (question as any).correctDefinition,
+              studentDefinition,
+              (question as any).definitionScore
+            );
+            definitionEarnedScore = scoreResult.earned;
+            definitionFeedback = scoreResult.details.join("; ");
+          }
+
+          totalScore += earnedScore + definitionEarnedScore;
+
           const isCorrect = wordCorrect && posCorrect && meaningCorrect;
-          
+
           answerDetailsList.push({
             questionId: answer.questionId,
             studentWord: answer.studentWord,
             studentPos: answer.studentPos,
             studentMeaning: answer.studentMeaning,
+            studentDefinition,
             isCorrect,
             wordCorrect,
             posCorrect,
             meaningCorrect,
             earnedScore,
+            definitionEarnedScore,
+            definitionFeedback,
           });
         }
       }
@@ -1146,16 +1248,19 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           studentWord: d.studentWord,
           studentPos: d.studentPos,
           studentMeaning: d.studentMeaning,
+          studentDefinition: d.studentDefinition,
           isCorrect: d.isCorrect,
           wordCorrect: d.wordCorrect,
           posCorrect: d.posCorrect,
           meaningCorrect: d.meaningCorrect,
           earnedScore: d.earnedScore,
-        }))
+          definitionEarnedScore: d.definitionEarnedScore,
+          definitionFeedback: d.definitionFeedback,
+        })) as any
       );
 
       // Calculate max possible score for display
-      const maxScore = questions.reduce((sum, q) => sum + q.wordScore + q.posScore + q.meaningScore, 0);
+      const maxScore = questions.reduce((sum, q) => sum + q.wordScore + q.posScore + q.meaningScore + ((q as any).definitionScore || 0), 0);
 
       // Compute newly earned badges
       let earnedBadges: string[] = [];

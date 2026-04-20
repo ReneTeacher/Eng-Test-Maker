@@ -26,6 +26,9 @@ export default function AdminCreateExam() {
   const [vocabularies, setVocabularies] = useState("");
   const [correctText, setCorrectText] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [hasDefinitionDictation, setHasDefinitionDictation] = useState(false);
+  const [definitionRatio, setDefinitionRatio] = useState(20);
+  const [definitions, setDefinitions] = useState("");
 
   const { data: existingExam, isLoading: isExamLoading } = useQuery<ExamWithQuestions>({
     queryKey: [`/api/exams/${id}`],
@@ -44,11 +47,19 @@ export default function AdminCreateExam() {
           setSubmissionMode(existingExam.submissionMode as "text" | "image");
         }
       } else {
-        const vocabString = existingExam.questions
-          .sort((a, b) => a.wordOrder - b.wordOrder)
+        const sorted = existingExam.questions.sort((a, b) => a.wordOrder - b.wordOrder);
+        const vocabString = sorted
           .map(q => `${q.correctWord} | ${q.correctPos} | ${q.correctMeaning}`)
           .join("\n");
         setVocabularies(vocabString);
+        if ((existingExam as any).hasDefinitionDictation) {
+          setHasDefinitionDictation(true);
+          setDefinitionRatio((existingExam as any).definitionRatio ?? 20);
+          const defString = sorted
+            .map(q => (q as any).correctDefinition || "")
+            .join("\n");
+          setDefinitions(defString);
+        }
       }
     }
   }, [existingExam]);
@@ -65,6 +76,9 @@ export default function AdminCreateExam() {
       title: string;
       examType: ExamType;
       vocabularies?: string;
+      definitions?: string;
+      hasDefinitionDictation?: boolean;
+      definitionRatio?: number;
       correctText?: string;
       isActive: boolean;
       submissionMode?: "text" | "image";
@@ -107,11 +121,33 @@ export default function AdminCreateExam() {
         toast({ title: "Please enter at least one vocabulary entry", variant: "destructive" });
         return;
       }
+      if (hasDefinitionDictation) {
+        const vocabCount = vocabularies.split("\n").map(l => l.trim()).filter(l => l.length > 0).length;
+        const defLines = definitions.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+        if (defLines.length === 0) {
+          toast({ title: "請輸入 definitions 或關閉背默詞解", variant: "destructive" });
+          return;
+        }
+        if (defLines.length !== vocabCount) {
+          toast({
+            title: `Definitions 行數 (${defLines.length}) 必須與 vocab 行數 (${vocabCount}) 一致`,
+            variant: "destructive",
+          });
+          return;
+        }
+        if (definitionRatio < 1 || definitionRatio > 99) {
+          toast({ title: "定義佔比需介於 1–99", variant: "destructive" });
+          return;
+        }
+      }
       saveMutation.mutate({
         title: title.trim(),
         examType,
         vocabularies: vocabularies.trim(),
-        isActive
+        hasDefinitionDictation,
+        definitionRatio,
+        definitions: hasDefinitionDictation ? definitions.trim() : undefined,
+        isActive,
       });
     } else {
       if (!correctText.trim()) {
@@ -295,23 +331,81 @@ export default function AdminCreateExam() {
               </div>
 
               {examType === "vocab" ? (
-                <div className="space-y-2">
-                  <Label htmlFor="vocabularies" className="flex items-center gap-2">
-                    <ListOrdered className="w-4 h-4 text-muted-foreground" />
-                    Vocabulary List
-                  </Label>
-                  <Textarea
-                    id="vocabularies"
-                    data-testid="textarea-vocabularies"
-                    placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | noun | 蘋果&#10;Run | verb | 跑, 跑步&#10;Quick | adjective | 快的/迅速的"
-                    value={vocabularies}
-                    onChange={(e) => setVocabularies(e.target.value)}
-                    className="min-h-[200px] font-mono text-sm"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    滿分 100 分，將自動分配分數。格式: Word | POS | Meaning。
-                  </p>
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="vocabularies" className="flex items-center gap-2">
+                      <ListOrdered className="w-4 h-4 text-muted-foreground" />
+                      Vocabulary List
+                    </Label>
+                    <Textarea
+                      id="vocabularies"
+                      data-testid="textarea-vocabularies"
+                      placeholder="Enter one vocabulary per line in format: Word | POS | Meaning&#10;&#10;Example:&#10;Apple | noun | 蘋果&#10;Run | verb | 跑, 跑步&#10;Quick | adjective | 快的/迅速的"
+                      value={vocabularies}
+                      onChange={(e) => setVocabularies(e.target.value)}
+                      className="min-h-[200px] font-mono text-sm"
+                    />
+                    <p className="text-sm text-muted-foreground">
+                      滿分 100 分，將自動分配分數。格式: Word | POS | Meaning。
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                    <div>
+                      <Label htmlFor="defDictation" className="font-medium">包含背默詞解 Definitions</Label>
+                      <p className="text-sm text-muted-foreground">
+                        開啟後學生須默寫每個字的英文定義，用背默方式逐字比對評分
+                      </p>
+                    </div>
+                    <Switch
+                      id="defDictation"
+                      checked={hasDefinitionDictation}
+                      onCheckedChange={setHasDefinitionDictation}
+                      data-testid="switch-definition-dictation"
+                    />
+                  </div>
+
+                  {hasDefinitionDictation && (
+                    <>
+                      <div className="space-y-2 p-4 border rounded-lg">
+                        <Label htmlFor="defRatio" className="font-medium">定義佔比（%）</Label>
+                        <div className="flex items-center gap-3">
+                          <Input
+                            id="defRatio"
+                            type="number"
+                            min={1}
+                            max={99}
+                            value={definitionRatio}
+                            onChange={(e) => setDefinitionRatio(parseInt(e.target.value) || 0)}
+                            className="w-24"
+                            data-testid="input-definition-ratio"
+                          />
+                          <p className="text-sm text-muted-foreground">
+                            Vocab 部分 <strong>{100 - definitionRatio}</strong> 分 / 定義部分 <strong>{definitionRatio}</strong> 分（總分 100）
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="definitions" className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-muted-foreground" />
+                          Definitions（每行一個，按行順序對應上方 vocab 列表）
+                        </Label>
+                        <Textarea
+                          id="definitions"
+                          data-testid="textarea-definitions"
+                          placeholder={"每行一個定義，行數必須與 vocab 列表一致\n\nExample:\nA round fruit that grows on trees.\nTo move fast on foot by moving both legs quickly.\nHappening or done with great speed."}
+                          value={definitions}
+                          onChange={(e) => setDefinitions(e.target.value)}
+                          className="min-h-[200px] text-sm"
+                        />
+                        <p className="text-sm text-muted-foreground">
+                          評分方式與背默相同：逐字比對、拼字/標點/大小寫錯誤扣分
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </>
               ) : (
                 <div className="space-y-2">
                   <Label htmlFor="correctText" className="flex items-center gap-2">

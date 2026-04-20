@@ -682,6 +682,26 @@ export default function AdminSubmissions() {
                                 </p>
                               </div>
                             </div>
+                            {(question as any).correctDefinition && (question as any).definitionScore > 0 && (
+                              <div className="pt-3 border-t mt-3 space-y-1 text-sm">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-muted-foreground">Definition (背默)</p>
+                                  <Badge variant="secondary">
+                                    {(answer as any)?.definitionEarnedScore || 0} / {(question as any).definitionScore}
+                                  </Badge>
+                                </div>
+                                <p className="text-green-600 dark:text-green-400 whitespace-pre-wrap">{(question as any).correctDefinition}</p>
+                                <p className="text-sm whitespace-pre-wrap">
+                                  <span className="text-muted-foreground">學生：</span>
+                                  {(answer as any)?.studentDefinition || "-"}
+                                </p>
+                                {(answer as any)?.definitionFeedback && (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    {(answer as any).definitionFeedback}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       );

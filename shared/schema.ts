@@ -11,6 +11,8 @@ export const exams = pgTable("exams", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   correctText: text("correct_text"),
   submissionMode: text("submission_mode").notNull().default("text"),
+  hasDefinitionDictation: boolean("has_definition_dictation").notNull().default(false),
+  definitionRatio: integer("definition_ratio").notNull().default(20),
 });
 
 export const questions = pgTable("questions", {
@@ -23,6 +25,8 @@ export const questions = pgTable("questions", {
   wordScore: integer("word_score").notNull().default(2),
   posScore: integer("pos_score").notNull().default(1),
   meaningScore: integer("meaning_score").notNull().default(1),
+  correctDefinition: text("correct_definition"),
+  definitionScore: integer("definition_score").notNull().default(0),
 });
 
 export const studentSubmissions = pgTable("student_submissions", {
@@ -51,6 +55,9 @@ export const answerDetails = pgTable("answer_details", {
   posCorrect: boolean("pos_correct").notNull().default(false),
   meaningCorrect: boolean("meaning_correct").notNull().default(false),
   earnedScore: integer("earned_score").notNull().default(0),
+  studentDefinition: text("student_definition").notNull().default(""),
+  definitionEarnedScore: integer("definition_earned_score").notNull().default(0),
+  definitionFeedback: text("definition_feedback"),
 });
 
 export const textSubmissions = pgTable("text_submissions", {
@@ -143,6 +150,7 @@ export const examSubmissionSchema = z.object({
     studentWord: z.string(),
     studentPos: z.string(),
     studentMeaning: z.string(),
+    studentDefinition: z.string().optional(),
   })),
 });
 
