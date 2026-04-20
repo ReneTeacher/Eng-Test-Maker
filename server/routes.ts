@@ -184,6 +184,8 @@ async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feed
     return { isCorrect: false };
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
       method: 'POST',
@@ -196,11 +198,12 @@ async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feed
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 300,
       }),
+      signal: controller.signal,
     });
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
-    
+
     // Extract JSON from response
     const jsonMatch = content.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
@@ -211,9 +214,15 @@ async function callMiniMaxAI(prompt: string): Promise<{ isCorrect: boolean; feed
       };
     }
     return { isCorrect: false };
-  } catch (error) {
-    console.error("MiniMax AI API error:", error);
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      console.error("MiniMax AI API timeout");
+    } else {
+      console.error("MiniMax AI API error:", error);
+    }
     return { isCorrect: false };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -559,7 +568,7 @@ export async function registerRoutes(
   // Create exam
   app.post("/api/exams", async (req, res) => {
     try {
-      const { title, vocabularies, definitions, correctText, isActive, examType, submissionMode, hasDefinitionDictation, definitionRatio } = req.body;
+      const { title, vocabularies, definitions, correctText, isActive, examType, submissionMode, hasDefinitionDictation, definitionRatio, enableEmailReport } = req.body;
 
       if (!title || typeof title !== "string" || !title.trim()) {
         res.status(400).json({ message: "Title is required" });
@@ -696,6 +705,7 @@ export async function registerRoutes(
           examType: "vocab",
           hasDefinitionDictation: hasDef,
           definitionRatio: hasDef ? defRatio : 20,
+          enableEmailReport: enableEmailReport ?? true,
         } as any);
 
         // Create questions — split 100 between vocab part and definition part
@@ -756,7 +766,7 @@ export async function registerRoutes(
   app.patch("/api/exams/:id", async (req, res) => {
     try {
       const examId = parseInt(req.params.id);
-      const { isActive, title, vocabularies, definitions, correctText, examType, hasDefinitionDictation, definitionRatio } = req.body;
+      const { isActive, title, vocabularies, definitions, correctText, examType, hasDefinitionDictation, definitionRatio, enableEmailReport } = req.body;
 
       // Get current exam to check its type
       const currentExam = await storage.getExamById(examId);
@@ -765,19 +775,23 @@ export async function registerRoutes(
         return;
       }
 
-      if (typeof isActive === "boolean" && !title && !vocabularies && !correctText) {
+      if ((typeof isActive === "boolean" || typeof enableEmailReport === "boolean") && !title && !vocabularies && !correctText) {
         // Simple toggle - no longer deactivates others, multiple exams can be active
-        const updated = await storage.updateExam(examId, { isActive });
+        const updateData: any = {};
+        if (typeof isActive === "boolean") updateData.isActive = isActive;
+        if (typeof enableEmailReport === "boolean") updateData.enableEmailReport = enableEmailReport;
+        const updated = await storage.updateExam(examId, updateData);
         res.json(updated);
         return;
       }
 
       // Full update for Text Dictation / Passage Memorization
       if ((currentExam.examType === "text" || currentExam.examType === "passage") && title && correctText) {
-        const updated = await storage.updateExam(examId, { 
-          title, 
+        const updated = await storage.updateExam(examId, {
+          title,
           isActive: isActive ?? currentExam.isActive,
-          correctText 
+          correctText,
+          enableEmailReport: enableEmailReport ?? currentExam.enableEmailReport
         });
 
         // Split text into sentences and redistribute 100 points
@@ -872,6 +886,7 @@ export async function registerRoutes(
           isActive: isActive ?? currentExam.isActive,
           hasDefinitionDictation: hasDef,
           definitionRatio: hasDef ? defRatio : 20,
+          enableEmailReport: enableEmailReport ?? currentExam.enableEmailReport
         } as any);
 
         // Remove old questions and create new ones
@@ -1183,24 +1198,26 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         definitionFeedback: string | null;
       }[] = [];
 
-      for (const answer of answers) {
+      // Process all answers in parallel to avoid request timeout with many AI calls
+      const processedDetails = await Promise.all(answers.map(async (answer) => {
         const question = questions.find(q => q.id === answer.questionId);
-        if (question) {
-          const studentWord = answer.studentWord.trim().toLowerCase();
-          const studentPos = answer.studentPos.trim().toLowerCase();
+        if (!question) return null;
 
-          const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
-          const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+        const studentWord = answer.studentWord.trim().toLowerCase();
+        const studentPos = answer.studentPos.trim().toLowerCase();
 
-          const wordCorrect = correctWords.includes(studentWord);
-          const posCorrect = correctPosList.includes(studentPos);
-          
-          let meaningCorrect = checkMeaningMatch(answer.studentMeaning, question.correctMeaning);
-          let earnedScore = 0;
-          
-          if (!meaningCorrect && answer.studentMeaning.trim().length > 0) {
-            try {
-              const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
+        const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+        const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
+
+        const wordCorrect = correctWords.includes(studentWord);
+        const posCorrect = correctPosList.includes(studentPos);
+
+        let meaningCorrect = checkMeaningMatch(answer.studentMeaning, question.correctMeaning);
+        let earnedScore = 0;
+
+        if (!meaningCorrect && answer.studentMeaning.trim().length > 0) {
+          try {
+            const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
 
 RULES - Mark as CORRECT if the student's answer:
 1. Is a valid Chinese synonym or paraphrase of ANY of the correct meanings
@@ -1215,52 +1232,56 @@ STUDENT'S ANSWER: ${answer.studentMeaning}
 
 Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
-              const aiResult = await callMiniMaxAI(prompt);
-              console.log(`AI meaning check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => isCorrect: ${aiResult.isCorrect}`);
-              if (aiResult.isCorrect) {
-                meaningCorrect = true;
-              }
-            } catch (aiError) {
-              console.error("AI vocab meaning scoring error:", aiError);
+            const aiResult = await callMiniMaxAI(prompt);
+            console.log(`AI meaning check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => isCorrect: ${aiResult.isCorrect}`);
+            if (aiResult.isCorrect) {
+              meaningCorrect = true;
             }
+          } catch (aiError) {
+            console.error("AI vocab meaning scoring error:", aiError);
           }
-          
-          if (wordCorrect) earnedScore += question.wordScore;
-          if (posCorrect) earnedScore += question.posScore;
-          if (meaningCorrect) earnedScore += question.meaningScore;
+        }
 
-          // Definition dictation grading (kept separate so earnedScore stays vocab-only)
-          const studentDefinition = (answer as any).studentDefinition || "";
-          let definitionEarnedScore = 0;
-          let definitionFeedback: string | null = null;
-          if (hasDefDictation && (question as any).correctDefinition && (question as any).definitionScore > 0) {
-            const scoreResult = computeSentenceScore(
-              (question as any).correctDefinition,
-              studentDefinition,
-              (question as any).definitionScore
-            );
-            definitionEarnedScore = scoreResult.earned;
-            definitionFeedback = scoreResult.details.join("; ");
-          }
+        if (wordCorrect) earnedScore += question.wordScore;
+        if (posCorrect) earnedScore += question.posScore;
+        if (meaningCorrect) earnedScore += question.meaningScore;
 
-          totalScore += earnedScore + definitionEarnedScore;
-
-          const isCorrect = wordCorrect && posCorrect && meaningCorrect;
-
-          answerDetailsList.push({
-            questionId: answer.questionId,
-            studentWord: answer.studentWord,
-            studentPos: answer.studentPos,
-            studentMeaning: answer.studentMeaning,
+        // Definition dictation grading (kept separate so earnedScore stays vocab-only)
+        const studentDefinition = (answer as any).studentDefinition || "";
+        let definitionEarnedScore = 0;
+        let definitionFeedback: string | null = null;
+        if (hasDefDictation && (question as any).correctDefinition && (question as any).definitionScore > 0) {
+          const scoreResult = computeSentenceScore(
+            (question as any).correctDefinition,
             studentDefinition,
-            isCorrect,
-            wordCorrect,
-            posCorrect,
-            meaningCorrect,
-            earnedScore,
-            definitionEarnedScore,
-            definitionFeedback,
-          });
+            (question as any).definitionScore
+          );
+          definitionEarnedScore = scoreResult.earned;
+          definitionFeedback = scoreResult.details.join("; ");
+        }
+
+        const isCorrect = wordCorrect && posCorrect && meaningCorrect;
+
+        return {
+          questionId: answer.questionId,
+          studentWord: answer.studentWord,
+          studentPos: answer.studentPos,
+          studentMeaning: answer.studentMeaning,
+          studentDefinition,
+          isCorrect,
+          wordCorrect,
+          posCorrect,
+          meaningCorrect,
+          earnedScore,
+          definitionEarnedScore,
+          definitionFeedback,
+        };
+      }));
+
+      for (const d of processedDetails) {
+        if (d) {
+          answerDetailsList.push(d);
+          totalScore += d.earnedScore + d.definitionEarnedScore;
         }
       }
 
@@ -1313,12 +1334,12 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         console.error("Badge computation error:", e);
       }
 
-      if (studentEmail) {
-        const exam = await storage.getExamById(examId);
+      const emailEnabled = (examRecord as any)?.enableEmailReport !== false;
+      if (studentEmail && emailEnabled) {
         sendScoreEmail({
           to: studentEmail,
           studentName,
-          examTitle: exam?.title || "Vocabulary Dictation",
+          examTitle: examRecord?.title || "Vocabulary Dictation",
           totalScore: Math.round(totalScore),
           maxScore,
           vocabDetails: answerDetailsList.map((d, idx) => {
@@ -1347,16 +1368,27 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         totalQuestions: questions.length,
         studentName,
         earnedBadges,
-        questionResults: answerDetailsList.map((d, idx) => ({
-          questionIndex: idx + 1,
-          studentWord: d.studentWord,
-          studentPos: d.studentPos,
-          studentMeaning: d.studentMeaning,
-          wordCorrect: d.wordCorrect,
-          posCorrect: d.posCorrect,
-          meaningCorrect: d.meaningCorrect,
-          earnedScore: d.earnedScore,
-        })),
+        questionResults: answerDetailsList.map((d, idx) => {
+          const question = questions.find(q => q.id === d.questionId);
+          return {
+            questionIndex: idx + 1,
+            studentWord: d.studentWord,
+            studentPos: d.studentPos,
+            studentMeaning: d.studentMeaning,
+            correctWord: question?.correctWord,
+            correctPos: question?.correctPos,
+            correctMeaning: question?.correctMeaning,
+            wordCorrect: d.wordCorrect,
+            posCorrect: d.posCorrect,
+            meaningCorrect: d.meaningCorrect,
+            earnedScore: d.earnedScore,
+            studentDefinition: d.studentDefinition,
+            correctDefinition: (question as any)?.correctDefinition,
+            definitionEarnedScore: d.definitionEarnedScore,
+            definitionMaxScore: (question as any)?.definitionScore || 0,
+            definitionFeedback: d.definitionFeedback,
+          };
+        }),
       });
     } catch (error) {
       console.error("Submission error:", error);

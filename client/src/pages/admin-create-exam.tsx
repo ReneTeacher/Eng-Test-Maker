@@ -29,6 +29,7 @@ export default function AdminCreateExam() {
   const [hasDefinitionDictation, setHasDefinitionDictation] = useState(false);
   const [definitionRatio, setDefinitionRatio] = useState(20);
   const [definitions, setDefinitions] = useState("");
+  const [enableEmailReport, setEnableEmailReport] = useState(true);
 
   const { data: existingExam, isLoading: isExamLoading } = useQuery<ExamWithQuestions>({
     queryKey: [`/api/exams/${id}`],
@@ -62,6 +63,9 @@ export default function AdminCreateExam() {
             .join("\n");
           setDefinitions(defString);
         }
+        if ((existingExam as any).enableEmailReport !== undefined) {
+          setEnableEmailReport((existingExam as any).enableEmailReport);
+        }
       }
     }
   }, [existingExam]);
@@ -84,6 +88,7 @@ export default function AdminCreateExam() {
       correctText?: string;
       isActive: boolean;
       submissionMode?: "text" | "image";
+      enableEmailReport?: boolean;
     }) => {
       const url = isEdit ? `/api/exams/${id}` : "/api/exams";
       const method = isEdit ? "PATCH" : "POST";
@@ -149,6 +154,7 @@ export default function AdminCreateExam() {
         definitionRatio,
         definitions: hasDefinitionDictation ? definitions.trim() : undefined,
         isActive,
+        enableEmailReport,
       });
     } else {
       if (!correctText.trim()) {
@@ -161,6 +167,7 @@ export default function AdminCreateExam() {
         correctText: correctText.trim(),
         isActive,
         submissionMode: examType === "passage" ? submissionMode : "text",
+        enableEmailReport,
       });
     }
   };
@@ -474,6 +481,21 @@ export default function AdminCreateExam() {
                   data-testid="switch-active"
                 />
               </div>
+
+              <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+                <div>
+                  <Label htmlFor="emailReport" className="font-medium">發送成績 Email 報告</Label>
+                  <p className="text-sm text-muted-foreground">
+                    學生提交後會收到成績報告（如有輸入 email）
+                  </p>
+                </div>
+                <Switch
+                  id="emailReport"
+                  checked={enableEmailReport}
+                  onCheckedChange={setEnableEmailReport}
+                  data-testid="switch-email-report"
+                />
+              </div>
             </CardContent>
           </Card>
 
@@ -482,14 +504,14 @@ export default function AdminCreateExam() {
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Eye className="w-5 h-5" />
-                  Preview ({vocabList.length} {vocabList.length === 1 ? "vocabulary" : "vocabularies"})
+                  Vocab Preview ({vocabList.length} {vocabList.length === 1 ? "vocabulary" : "vocabularies"})
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   {vocabList.map((vocab, i) => (
-                    <div 
-                      key={i} 
+                    <div
+                      key={i}
                       className={`flex items-center gap-3 p-2 rounded-md ${vocab.valid ? 'bg-muted/50' : 'bg-destructive/10 border border-destructive/30'}`}
                     >
                       <span className="font-semibold text-sm w-6">{i + 1}.</span>
@@ -504,6 +526,49 @@ export default function AdminCreateExam() {
                       )}
                     </div>
                   ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {examType === "vocab" && hasDefinitionDictation && definitions.trim() && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Eye className="w-5 h-5" />
+                  Definition Words Preview
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {definitions
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter((line) => line.length > 0)
+                    .map((line, i) => {
+                      const parts = line.split(/[|｜]/).map((p) => p.trim());
+                      const isValid = parts.length === 2 && parts[0] && parts[1];
+                      return (
+                        <div
+                          key={i}
+                          className={`flex items-start gap-3 p-2 rounded-md ${
+                            isValid ? "bg-muted/50" : "bg-destructive/10 border border-destructive/30"
+                          }`}
+                        >
+                          <span className="font-semibold text-sm w-6">{i + 1}.</span>
+                          {isValid ? (
+                            <>
+                              <Badge variant="secondary" className="font-mono">
+                                {parts[0]}
+                              </Badge>
+                              <span className="text-sm text-muted-foreground flex-1">{parts[1]}</span>
+                            </>
+                          ) : (
+                            <span className="text-sm text-destructive">Invalid format: {line}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </CardContent>
             </Card>

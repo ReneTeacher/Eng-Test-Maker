@@ -26,10 +26,18 @@ interface QuestionResult {
   studentWord: string;
   studentPos: string;
   studentMeaning: string;
+  correctWord?: string;
+  correctPos?: string;
+  correctMeaning?: string;
   wordCorrect: boolean;
   posCorrect: boolean;
   meaningCorrect: boolean;
   earnedScore: number;
+  studentDefinition?: string;
+  correctDefinition?: string;
+  definitionEarnedScore?: number;
+  definitionMaxScore?: number;
+  definitionFeedback?: string;
 }
 
 interface SentenceResult {
@@ -315,47 +323,138 @@ export default function ThankYou() {
                 </div>
               )}
 
-              {!isTextDictation && result.questionResults && result.questionResults.length > 0 && (
-                <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
-                  <p className="text-sm text-muted-foreground font-medium mb-2">答題詳情：</p>
-                  {result.questionResults.map((qr) => {
-                    const allCorrect = qr.wordCorrect && qr.posCorrect && qr.meaningCorrect;
-                    return (
-                      <div key={qr.questionIndex} className={`rounded-md p-3 border ${allCorrect ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium text-sm">單字 {qr.questionIndex}</span>
-                          {allCorrect 
-                            ? <span className="text-xs text-green-600 dark:text-green-400 font-medium">全對</span>
-                            : <span className="text-xs text-red-600 dark:text-red-400 font-medium">有錯誤</span>}
-                        </div>
-                        <div className="space-y-1.5 text-sm">
-                          <div className="flex items-center gap-2">
-                            {qr.wordCorrect ? <CorrectIcon /> : <WrongIcon />}
-                            <span className="text-muted-foreground w-12 shrink-0">Word:</span>
-                            <span className={qr.wordCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
-                              {qr.studentWord || "(未填)"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {qr.posCorrect ? <CorrectIcon /> : <WrongIcon />}
-                            <span className="text-muted-foreground w-12 shrink-0">POS:</span>
-                            <span className={qr.posCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
-                              {qr.studentPos || "(未填)"}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {qr.meaningCorrect ? <CorrectIcon /> : <WrongIcon />}
-                            <span className="text-muted-foreground w-12 shrink-0">意思:</span>
-                            <span className={qr.meaningCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
-                              {qr.studentMeaning || "(未填)"}
-                            </span>
-                          </div>
-                        </div>
+              {!isTextDictation && result.questionResults && result.questionResults.length > 0 && (() => {
+                const vocabQuestions = result.questionResults.filter(q => !q.correctDefinition);
+                const defQuestions = result.questionResults.filter(q => q.correctDefinition);
+                return (
+                  <>
+                    {vocabQuestions.length > 0 && (
+                      <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
+                        <p className="text-sm text-muted-foreground font-medium mb-2">生字詳情：</p>
+                        {vocabQuestions.map((qr) => {
+                          const allCorrect = qr.wordCorrect && qr.posCorrect && qr.meaningCorrect;
+                          return (
+                            <div key={qr.questionIndex} className={`rounded-md p-3 border ${allCorrect ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium text-sm">生字 {qr.questionIndex}</span>
+                                {allCorrect
+                                  ? <span className="text-xs text-green-600 dark:text-green-400 font-medium">全對</span>
+                                  : <span className="text-xs text-red-600 dark:text-red-400 font-medium">有錯誤</span>}
+                              </div>
+                              <div className="space-y-1.5 text-sm">
+                                <div className="flex items-center gap-2">
+                                  {qr.wordCorrect ? <CorrectIcon /> : <WrongIcon />}
+                                  <span className="text-muted-foreground w-12 shrink-0">Word:</span>
+                                  <span className={qr.wordCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
+                                    {qr.studentWord || "(未填)"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {qr.posCorrect ? <CorrectIcon /> : <WrongIcon />}
+                                  <span className="text-muted-foreground w-12 shrink-0">POS:</span>
+                                  <span className={qr.posCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
+                                    {qr.studentPos || "(未填)"}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {qr.meaningCorrect ? <CorrectIcon /> : <WrongIcon />}
+                                  <span className="text-muted-foreground w-12 shrink-0">意思:</span>
+                                  <span className={qr.meaningCorrect ? "text-foreground" : "text-red-600 dark:text-red-400 line-through"}>
+                                    {qr.studentMeaning || "(未填)"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    )}
+
+                    {defQuestions.length > 0 && (
+                      <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <BookText className="w-4 h-4 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground font-medium">詞解詳情：</p>
+                        </div>
+                        {defQuestions.map((qr, idx) => {
+                          const earned = qr.definitionEarnedScore || 0;
+                          const max = qr.definitionMaxScore || 0;
+                          const isFullScore = max > 0 && earned === max;
+                          const isPass = max > 0 && earned >= max * 0.6;
+                          const lostPoints = max - earned;
+
+                          return (
+                            <div
+                              key={`def-${qr.questionIndex}`}
+                              className={`rounded-md p-3 border ${isFullScore ? "border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/20" : isPass ? "border-yellow-200 dark:border-yellow-900 bg-yellow-50/50 dark:bg-yellow-950/20" : "border-red-200 dark:border-red-900 bg-red-50/50 dark:bg-red-950/20"}`}
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="font-medium text-sm">詞解 {idx + 1}：<span className="text-primary">{qr.correctWord || qr.studentWord}</span></span>
+                                <div className="flex items-center gap-2">
+                                  {isFullScore
+                                    ? <CorrectIcon />
+                                    : isPass
+                                      ? <CircleCheck className="w-4 h-4 text-yellow-500 shrink-0" />
+                                      : <WrongIcon />}
+                                  <span className={`text-sm font-medium ${isFullScore ? "text-green-600 dark:text-green-400" : isPass ? "text-yellow-600 dark:text-yellow-400" : "text-red-600 dark:text-red-400"}`}>
+                                    {earned} / {max} 分
+                                    {!isFullScore && lostPoints > 0 && <span className="text-xs ml-1 opacity-70">(-{lostPoints})</span>}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="space-y-2 text-sm">
+                                {qr.correctDefinition && qr.studentDefinition && !isFullScore ? (
+                                  renderWordDiff(qr.correctDefinition, qr.studentDefinition)
+                                ) : (
+                                  <>
+                                    {qr.correctDefinition && (
+                                      <div>
+                                        <span className="text-muted-foreground text-xs">正確定義：</span>
+                                        <span className="text-green-700 dark:text-green-400 text-sm font-medium block">{qr.correctDefinition}</span>
+                                      </div>
+                                    )}
+                                    {qr.studentDefinition ? (
+                                      <div>
+                                        <span className="text-muted-foreground text-xs">你寫：</span>
+                                        <span className="text-foreground text-sm block">{qr.studentDefinition}</span>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        <span className="text-muted-foreground text-xs">你寫：</span>
+                                        <span className="text-red-600 dark:text-red-400 text-sm">(未填)</span>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+
+                                {qr.definitionFeedback && !isFullScore && (
+                                  <div className="mt-1.5 pt-2 border-t border-muted">
+                                    <div className="flex items-start gap-1.5">
+                                      <Lightbulb className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
+                                      <div className="text-xs leading-relaxed space-y-0.5">
+                                        {qr.definitionFeedback.split(/[；;]/).map((part, pi) => {
+                                          const trimmed = part.trim();
+                                          if (!trimmed) return null;
+                                          return (
+                                            <div key={pi} className="text-foreground">
+                                              - {trimmed}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {isTextDictation && result.sentenceResults && result.sentenceResults.length > 0 && (
                 <div className="bg-muted/30 rounded-lg p-4 text-left space-y-3">

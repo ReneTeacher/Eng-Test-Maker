@@ -13,6 +13,7 @@ export const exams = pgTable("exams", {
   submissionMode: text("submission_mode").notNull().default("text"),
   hasDefinitionDictation: boolean("has_definition_dictation").notNull().default(false),
   definitionRatio: integer("definition_ratio").notNull().default(20),
+  enableEmailReport: boolean("enable_email_report").notNull().default(true),
 });
 
 export const questions = pgTable("questions", {
