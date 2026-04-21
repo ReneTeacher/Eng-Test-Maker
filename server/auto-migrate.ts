@@ -20,12 +20,20 @@ export async function autoMigrate() {
     `ALTER TABLE answer_details ADD COLUMN IF NOT EXISTS definition_feedback TEXT`,
   ];
 
+  let failures = 0;
   for (const stmt of statements) {
     try {
       await db.execute(sql.raw(stmt));
     } catch (err) {
-      console.error(`Auto-migrate failed for: ${stmt}`, err);
+      failures++;
+      console.error(`!!! AUTO-MIGRATE FAILED for: ${stmt}`);
+      console.error(err);
+      process.stderr.write(`AUTO-MIGRATE FAILED: ${stmt}\n`);
     }
   }
-  console.log("Auto-migration complete");
+  if (failures > 0) {
+    console.error(`Auto-migration completed with ${failures} failure(s). DB may be out of sync.`);
+  } else {
+    console.log("Auto-migration complete");
+  }
 }

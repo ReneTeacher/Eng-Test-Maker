@@ -1198,69 +1198,24 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         definitionFeedback: string | null;
       }[] = [];
 
-      // Process all answers in parallel to avoid request timeout with many AI calls
+      // Process all answers in parallel to avoid request timeout with many AI calls.
+      // gradeSingleAnswer never throws — it always resolves, so a bad single answer
+      // can't fail-fast the whole Promise.all batch.
       const processedDetails = await Promise.all(answers.map(async (answer) => {
         const question = questions.find(q => q.id === answer.questionId);
         if (!question) return null;
 
-        const studentWord = answer.studentWord.trim().toLowerCase();
-        const studentPos = answer.studentPos.trim().toLowerCase();
-
-        const correctWords = question.correctWord.split(/[,，\/、]/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
-        const correctPosList = question.correctPos.split(/[,，\/、]/).map(p => p.trim().toLowerCase()).filter(p => p.length > 0);
-
-        const wordCorrect = correctWords.includes(studentWord);
-        const posCorrect = correctPosList.includes(studentPos);
-
-        let meaningCorrect = checkMeaningMatch(answer.studentMeaning, question.correctMeaning);
-        let earnedScore = 0;
-
-        if (!meaningCorrect && answer.studentMeaning.trim().length > 0) {
-          try {
-            const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
-
-RULES - Mark as CORRECT if the student's answer:
-1. Is a valid Chinese synonym or paraphrase of ANY of the correct meanings
-2. Uses simplified Chinese characters instead of traditional (e.g. 恢复=恢復, 雇主=僱主, 皮肤=皮膚)
-3. Has minor differences like 有自信的/有自信心的/有信心的 (all mean "confident")
-4. Uses 皮膚瑕疵 vs 肌膚瑕疵 (both mean "skin blemish")
-5. Uses 注重 vs 著重 (both mean "focus on")
-6. Captures the core meaning even if wording differs slightly
-
-CORRECT MEANING(S): ${question.correctMeaning}
-STUDENT'S ANSWER: ${answer.studentMeaning}
-
-Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
-
-            const aiResult = await callMiniMaxAI(prompt);
-            console.log(`AI meaning check: "${answer.studentMeaning}" vs "${question.correctMeaning}" => isCorrect: ${aiResult.isCorrect}`);
-            if (aiResult.isCorrect) {
-              meaningCorrect = true;
-            }
-          } catch (aiError) {
-            console.error("AI vocab meaning scoring error:", aiError);
-          }
-        }
-
-        if (wordCorrect) earnedScore += question.wordScore;
-        if (posCorrect) earnedScore += question.posScore;
-        if (meaningCorrect) earnedScore += question.meaningScore;
-
-        // Definition dictation grading (kept separate so earnedScore stays vocab-only)
         const studentDefinition = (answer as any).studentDefinition || "";
-        let definitionEarnedScore = 0;
-        let definitionFeedback: string | null = null;
-        if (hasDefDictation && (question as any).correctDefinition && (question as any).definitionScore > 0) {
-          const scoreResult = computeSentenceScore(
-            (question as any).correctDefinition,
+        const g = await gradeSingleAnswer(
+          question,
+          {
+            studentWord: answer.studentWord,
+            studentPos: answer.studentPos,
+            studentMeaning: answer.studentMeaning,
             studentDefinition,
-            (question as any).definitionScore
-          );
-          definitionEarnedScore = scoreResult.earned;
-          definitionFeedback = scoreResult.details.join("; ");
-        }
-
-        const isCorrect = wordCorrect && posCorrect && meaningCorrect;
+          },
+          hasDefDictation,
+        );
 
         return {
           questionId: answer.questionId,
@@ -1268,13 +1223,13 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           studentPos: answer.studentPos,
           studentMeaning: answer.studentMeaning,
           studentDefinition,
-          isCorrect,
-          wordCorrect,
-          posCorrect,
-          meaningCorrect,
-          earnedScore,
-          definitionEarnedScore,
-          definitionFeedback,
+          isCorrect: g.isCorrect,
+          wordCorrect: g.wordCorrect,
+          posCorrect: g.posCorrect,
+          meaningCorrect: g.meaningCorrect,
+          earnedScore: g.earnedScore,
+          definitionEarnedScore: g.definitionEarnedScore,
+          definitionFeedback: g.definitionFeedback,
         };
       }));
 
@@ -1654,6 +1609,118 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     const rawScore = Math.max(0, maxScore - totalDeductions);
     const earned = Math.round(rawScore * 2) / 2;
     return { earned: Math.min(maxScore, earned), deductions: totalDeductions, details };
+  }
+
+  // Shared grading: used by both POST /api/submissions and POST /api/exams/:id/rescore.
+  // Always resolves — any unexpected error is logged and yields an all-wrong result.
+  async function gradeSingleAnswer(
+    question: any,
+    answer: { studentWord?: string; studentPos?: string; studentMeaning?: string; studentDefinition?: string },
+    hasDefDictation: boolean,
+  ): Promise<{
+    wordCorrect: boolean;
+    posCorrect: boolean;
+    meaningCorrect: boolean;
+    isCorrect: boolean;
+    earnedScore: number;
+    definitionEarnedScore: number;
+    definitionFeedback: string | null;
+  }> {
+    try {
+      const studentWord = (answer.studentWord || "").trim().toLowerCase();
+      const studentPos = (answer.studentPos || "").trim().toLowerCase();
+      const studentMeaning = answer.studentMeaning || "";
+      const studentDefinition = answer.studentDefinition || "";
+
+      const correctWords = (question?.correctWord || "")
+        .split(/[,，\/、]/)
+        .map((w: string) => w.trim().toLowerCase())
+        .filter((w: string) => w.length > 0);
+      const correctPosList = (question?.correctPos || "")
+        .split(/[,，\/、]/)
+        .map((p: string) => p.trim().toLowerCase())
+        .filter((p: string) => p.length > 0);
+
+      const wordCorrect = studentWord.length > 0 && correctWords.includes(studentWord);
+      const posCorrect = studentPos.length > 0 && correctPosList.includes(studentPos);
+
+      let meaningCorrect = checkMeaningMatch(studentMeaning, question?.correctMeaning || "");
+
+      if (!meaningCorrect && studentMeaning.trim().length > 0) {
+        try {
+          const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
+
+RULES - Mark as CORRECT if the student's answer:
+1. Is a valid Chinese synonym or paraphrase of ANY of the correct meanings
+2. Uses simplified Chinese characters instead of traditional (e.g. 恢复=恢復, 雇主=僱主, 皮肤=皮膚)
+3. Has minor differences like 有自信的/有自信心的/有信心的 (all mean "confident")
+4. Uses 皮膚瑕疵 vs 肌膚瑕疵 (both mean "skin blemish")
+5. Uses 注重 vs 著重 (both mean "focus on")
+6. Captures the core meaning even if wording differs slightly
+
+CORRECT MEANING(S): ${question.correctMeaning}
+STUDENT'S ANSWER: ${studentMeaning}
+
+Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
+
+          const aiResult = await callMiniMaxAI(prompt);
+          if (aiResult.isCorrect) {
+            meaningCorrect = true;
+          }
+        } catch (aiError) {
+          console.error("AI vocab meaning scoring error:", aiError);
+        }
+      }
+
+      let earnedScore = 0;
+      if (wordCorrect) earnedScore += question.wordScore || 0;
+      if (posCorrect) earnedScore += question.posScore || 0;
+      if (meaningCorrect) earnedScore += question.meaningScore || 0;
+
+      let definitionEarnedScore = 0;
+      let definitionFeedback: string | null = null;
+      if (
+        hasDefDictation &&
+        question?.correctDefinition &&
+        (question?.definitionScore || 0) > 0
+      ) {
+        const scoreResult = computeSentenceScore(
+          question.correctDefinition,
+          studentDefinition,
+          question.definitionScore,
+        );
+        definitionEarnedScore = scoreResult.earned;
+        definitionFeedback = scoreResult.details.join("; ");
+      }
+
+      const isCorrect = wordCorrect && posCorrect && meaningCorrect;
+
+      return {
+        wordCorrect,
+        posCorrect,
+        meaningCorrect,
+        isCorrect,
+        earnedScore,
+        definitionEarnedScore,
+        definitionFeedback,
+      };
+    } catch (err) {
+      console.error(
+        "gradeSingleAnswer unexpected error:",
+        err,
+        "questionId=",
+        question?.id,
+      );
+      return {
+        wordCorrect: false,
+        posCorrect: false,
+        meaningCorrect: false,
+        isCorrect: false,
+        earnedScore: 0,
+        definitionEarnedScore: 0,
+        definitionFeedback: null,
+      };
+    }
   }
 
   // OCR: Extract text from handwritten image using MiniMax VL
@@ -2331,6 +2398,7 @@ STRICT RULES:
           rescored++;
         }
       } else {
+        const hasDefDictation = !!(exam as any)?.hasDefinitionDictation;
         const questions = await storage.getQuestionsByExamId(examId);
         const submissions = await storage.getSubmissionsByExamId(examId);
 
@@ -2338,38 +2406,40 @@ STRICT RULES:
           const answers = await storage.getAnswerDetailsBySubmissionId(sub.id);
           let newTotalScore = 0;
 
-          for (const answer of answers) {
+          // Grade all answers for this submission in parallel using the shared function
+          const graded = await Promise.all(answers.map(async (answer) => {
             const question = questions.find(q => q.id === answer.questionId);
-            if (!question) continue;
+            if (!question) return null;
+            const g = await gradeSingleAnswer(
+              question,
+              {
+                studentWord: answer.studentWord,
+                studentPos: answer.studentPos,
+                studentMeaning: answer.studentMeaning,
+                studentDefinition: (answer as any).studentDefinition || "",
+              },
+              hasDefDictation,
+            );
+            return { answerId: answer.id, g };
+          }));
 
-            const wordCorrect = answer.studentWord?.trim().toLowerCase() === question.correctWord.trim().toLowerCase();
-            const posCorrect = answer.studentPos?.trim().toLowerCase() === question.correctPos.trim().toLowerCase();
-            
-            let meaningCorrect = false;
-            const studentMeaning = (answer.studentMeaning || "").trim();
-            const correctMeaning = (question.correctMeaning || "").trim();
-            if (studentMeaning === correctMeaning) {
-              meaningCorrect = true;
-            } else {
-              const normStudent = convertSimplifiedToTraditional(normalizeChinese(studentMeaning));
-              const normCorrect = convertSimplifiedToTraditional(normalizeChinese(correctMeaning));
-              meaningCorrect = normStudent === normCorrect;
-            }
+          for (const item of graded) {
+            if (!item) continue;
+            const { answerId, g } = item;
+            newTotalScore += g.earnedScore + g.definitionEarnedScore;
 
-            const isCorrect = wordCorrect && posCorrect && meaningCorrect;
-            let wordScore = wordCorrect ? (question.wordScore || 0) : 0;
-            let posScore = posCorrect ? (question.posScore || 0) : 0;
-            let meaningScore = meaningCorrect ? (question.meaningScore || 0) : 0;
-            const totalPartScore = wordScore + posScore + meaningScore;
-            newTotalScore += totalPartScore;
-
-            await storage.updateAnswerDetail(answer.id, {
-              isCorrect,
-              earnedScore: totalPartScore,
-            });
+            await storage.updateAnswerDetail(answerId, {
+              isCorrect: g.isCorrect,
+              wordCorrect: g.wordCorrect,
+              posCorrect: g.posCorrect,
+              meaningCorrect: g.meaningCorrect,
+              earnedScore: g.earnedScore,
+              definitionEarnedScore: g.definitionEarnedScore,
+              definitionFeedback: g.definitionFeedback,
+            } as any);
           }
 
-          await db.update(studentSubmissions).set({ totalScore: newTotalScore }).where(eq(studentSubmissions.id, sub.id));
+          await db.update(studentSubmissions).set({ totalScore: Math.round(newTotalScore) }).where(eq(studentSubmissions.id, sub.id));
           rescored++;
         }
       }
