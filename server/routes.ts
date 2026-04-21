@@ -1667,11 +1667,12 @@ STUDENT'S ANSWER: ${studentMeaning}
 Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
           const aiResult = await callMiniMaxAI(prompt);
+          console.log(`[AI-grade] q=${question.correctWord} student="${studentMeaning}" correct="${question.correctMeaning}" => isCorrect=${aiResult.isCorrect}`);
           if (aiResult.isCorrect) {
             meaningCorrect = true;
           }
         } catch (aiError) {
-          console.error("AI vocab meaning scoring error:", aiError);
+          console.error(`[AI-grade-FAIL] q=${question.correctWord} student="${studentMeaning}" — prevMC=${previousMeaningCorrect} err=`, aiError);
           // AI transient failure during rescore: preserve previously-judged value
           // so we never downgrade an answer the student had already passed on.
           if (previousMeaningCorrect === true) {
