@@ -1617,6 +1617,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     question: any,
     answer: { studentWord?: string; studentPos?: string; studentMeaning?: string; studentDefinition?: string },
     hasDefDictation: boolean,
+    // When rescoring, pass the previously-stored meaningCorrect so that a
+    // transient AI failure doesn't downgrade a previously-correct answer to 0.
+    previousMeaningCorrect?: boolean,
   ): Promise<{
     wordCorrect: boolean;
     posCorrect: boolean;
@@ -1669,6 +1672,11 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
           }
         } catch (aiError) {
           console.error("AI vocab meaning scoring error:", aiError);
+          // AI transient failure during rescore: preserve previously-judged value
+          // so we never downgrade an answer the student had already passed on.
+          if (previousMeaningCorrect === true) {
+            meaningCorrect = true;
+          }
         }
       }
 
@@ -2406,7 +2414,8 @@ STRICT RULES:
           const answers = await storage.getAnswerDetailsBySubmissionId(sub.id);
           let newTotalScore = 0;
 
-          // Grade all answers for this submission in parallel using the shared function
+          // Grade all answers for this submission in parallel using the shared function.
+          // Pass answer.meaningCorrect so transient AI failures don't downgrade correct answers.
           const graded = await Promise.all(answers.map(async (answer) => {
             const question = questions.find(q => q.id === answer.questionId);
             if (!question) return null;
@@ -2419,6 +2428,7 @@ STRICT RULES:
                 studentDefinition: (answer as any).studentDefinition || "",
               },
               hasDefDictation,
+              (answer as any).meaningCorrect,
             );
             return { answerId: answer.id, g };
           }));
@@ -2428,18 +2438,28 @@ STRICT RULES:
             const { answerId, g } = item;
             newTotalScore += g.earnedScore + g.definitionEarnedScore;
 
-            await storage.updateAnswerDetail(answerId, {
-              isCorrect: g.isCorrect,
-              wordCorrect: g.wordCorrect,
-              posCorrect: g.posCorrect,
-              meaningCorrect: g.meaningCorrect,
-              earnedScore: g.earnedScore,
-              definitionEarnedScore: g.definitionEarnedScore,
-              definitionFeedback: g.definitionFeedback,
-            } as any);
+            // Per-answer try/catch: one row failing (e.g. missing column, constraint)
+            // must not abort the whole batch and leave the submission at 0.
+            try {
+              await storage.updateAnswerDetail(answerId, {
+                isCorrect: g.isCorrect,
+                wordCorrect: g.wordCorrect,
+                posCorrect: g.posCorrect,
+                meaningCorrect: g.meaningCorrect,
+                earnedScore: g.earnedScore,
+                definitionEarnedScore: g.definitionEarnedScore,
+                definitionFeedback: g.definitionFeedback,
+              } as any);
+            } catch (e) {
+              console.error(`rescore: failed to update answer ${answerId}`, e);
+            }
           }
 
-          await db.update(studentSubmissions).set({ totalScore: Math.round(newTotalScore) }).where(eq(studentSubmissions.id, sub.id));
+          try {
+            await db.update(studentSubmissions).set({ totalScore: Math.round(newTotalScore) }).where(eq(studentSubmissions.id, sub.id));
+          } catch (e) {
+            console.error(`rescore: failed to update submission ${sub.id} totalScore`, e);
+          }
           rescored++;
         }
       }
