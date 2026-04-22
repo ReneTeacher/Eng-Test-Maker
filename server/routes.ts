@@ -5,7 +5,7 @@ import { examSubmissionSchema, createExamSchema, studentSubmissions, textSubmiss
 import ExcelJS from "exceljs";
 import { computeBadges, BADGE_DEFINITIONS, type SubmissionRecord } from "@shared/badges";
 import { db } from "./db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { sendScoreEmail } from "./email";
 
 async function generateReportInBackground(submissionId: number, sessionId: number) {
@@ -1120,6 +1120,89 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
   });
 
+  // Find / clean up orphan submissions (submission rows with zero answer_details).
+  // These were created when POST /api/submissions succeeded at the submission-insert
+  // step but failed at the answer-details-insert step (e.g. pre-auto-migrate schema
+  // drift). Rollback protection is now in place for new submissions; this endpoint
+  // exists to triage and clean the historical residue.
+  app.post("/api/admin/orphan-submissions", async (req, res) => {
+    try {
+      const { password, mode } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      if (mode !== "list" && mode !== "delete") {
+        res.status(400).json({ message: "mode must be 'list' or 'delete'" });
+        return;
+      }
+
+      const vocabOrphans = await db.execute(sql`
+        SELECT s.id, s.exam_id, s.student_name, s.student_number,
+               s.original_class, s.mixed_class, s.total_score, s.submitted_at
+        FROM student_submissions s
+        LEFT JOIN answer_details ad ON ad.submission_id = s.id
+        WHERE ad.id IS NULL
+        ORDER BY s.submitted_at DESC
+      `);
+
+      const textOrphans = await db.execute(sql`
+        SELECT s.id, s.exam_id, s.student_name, s.student_number,
+               s.original_class, s.mixed_class, s.total_score, s.submitted_at
+        FROM text_submissions s
+        LEFT JOIN text_answer_details tad ON tad.submission_id = s.id
+        WHERE tad.id IS NULL
+        ORDER BY s.submitted_at DESC
+      `);
+
+      if (mode === "list") {
+        res.json({
+          vocab: vocabOrphans.rows,
+          text: textOrphans.rows,
+          vocabCount: vocabOrphans.rows.length,
+          textCount: textOrphans.rows.length,
+        });
+        return;
+      }
+
+      // mode === "delete"
+      const vocabIds = vocabOrphans.rows.map((r: any) => Number(r.id)).filter(n => Number.isFinite(n));
+      const textIds = textOrphans.rows.map((r: any) => Number(r.id)).filter(n => Number.isFinite(n));
+
+      let vocabDeleted = 0;
+      let textDeleted = 0;
+
+      for (const id of vocabIds) {
+        try {
+          const ok = await storage.deleteSubmission(id);
+          if (ok) vocabDeleted++;
+        } catch (e) {
+          console.error(`orphan delete: vocab submission ${id} failed`, e);
+        }
+      }
+
+      for (const id of textIds) {
+        try {
+          await db.delete(textSubmissions).where(eq(textSubmissions.id, id));
+          textDeleted++;
+        } catch (e) {
+          console.error(`orphan delete: text submission ${id} failed`, e);
+        }
+      }
+
+      res.json({
+        mode: "delete",
+        vocabDeleted,
+        textDeleted,
+        vocabTotal: vocabIds.length,
+        textTotal: textIds.length,
+      });
+    } catch (error) {
+      console.error("Orphan submissions error:", error);
+      res.status(500).json({ message: "Failed to process orphan submissions" });
+    }
+  });
+
   // Delete exam
   app.delete("/api/exams/:id", async (req, res) => {
     try {
@@ -1256,24 +1339,36 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         violationsJson: clientViolations,
       } as any);
 
-      // Create answer details with individual part scores
-      await storage.createAnswerDetails(
-        answerDetailsList.map(d => ({
-          submissionId: submission.id,
-          questionId: d.questionId,
-          studentWord: d.studentWord,
-          studentPos: d.studentPos,
-          studentMeaning: d.studentMeaning,
-          studentDefinition: d.studentDefinition,
-          isCorrect: d.isCorrect,
-          wordCorrect: d.wordCorrect,
-          posCorrect: d.posCorrect,
-          meaningCorrect: d.meaningCorrect,
-          earnedScore: d.earnedScore,
-          definitionEarnedScore: d.definitionEarnedScore,
-          definitionFeedback: d.definitionFeedback,
-        })) as any
-      );
+      // Create answer details with individual part scores.
+      // If this INSERT fails (e.g. schema drift), rollback the submission row
+      // so we don't leave an orphan submission with empty answer_details.
+      try {
+        await storage.createAnswerDetails(
+          answerDetailsList.map(d => ({
+            submissionId: submission.id,
+            questionId: d.questionId,
+            studentWord: d.studentWord,
+            studentPos: d.studentPos,
+            studentMeaning: d.studentMeaning,
+            studentDefinition: d.studentDefinition,
+            isCorrect: d.isCorrect,
+            wordCorrect: d.wordCorrect,
+            posCorrect: d.posCorrect,
+            meaningCorrect: d.meaningCorrect,
+            earnedScore: d.earnedScore,
+            definitionEarnedScore: d.definitionEarnedScore,
+            definitionFeedback: d.definitionFeedback,
+          })) as any
+        );
+      } catch (detailsErr) {
+        console.error(`createAnswerDetails failed for submission ${submission.id}, rolling back`, detailsErr);
+        try {
+          await db.delete(studentSubmissions).where(eq(studentSubmissions.id, submission.id));
+        } catch (rollbackErr) {
+          console.error(`rollback of orphan submission ${submission.id} failed`, rollbackErr);
+        }
+        throw detailsErr;
+      }
 
       // Calculate max possible score for display
       const maxScore = questions.reduce((sum, q) => sum + q.wordScore + q.posScore + q.meaningScore + ((q as any).definitionScore || 0), 0);
@@ -1973,7 +2068,8 @@ STRICT RULES:
           violationsJson: clientViolations,
         });
 
-        // Save sentence answer details
+        // Save sentence answer details.
+        // Rollback the submission if this INSERT fails, to avoid orphan rows.
         const answerDetails = sentenceResults.map((r, i) => ({
           submissionId: submission.id,
           sentenceId: r.sentenceId,
@@ -1981,7 +2077,17 @@ STRICT RULES:
           earnedScore: Math.round(r.earned),
           feedback: r.feedback,
         }));
-        await storage.createTextAnswerDetails(answerDetails);
+        try {
+          await storage.createTextAnswerDetails(answerDetails);
+        } catch (detailsErr) {
+          console.error(`createTextAnswerDetails failed for submission ${submission.id}, rolling back`, detailsErr);
+          try {
+            await db.delete(textSubmissions).where(eq(textSubmissions.id, submission.id));
+          } catch (rollbackErr) {
+            console.error(`rollback of orphan text submission ${submission.id} failed`, rollbackErr);
+          }
+          throw detailsErr;
+        }
 
         // Compute newly earned badges
         let earnedBadges: string[] = [];
