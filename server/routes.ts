@@ -1203,6 +1203,82 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     }
   });
 
+  // Deep diagnostic: verify whether answer_details rows truly exist in DB
+  // for a given submission, and report what columns the table actually has.
+  app.post("/api/admin/db-diagnostic", async (req, res) => {
+    try {
+      const { password, submissionId, examId } = req.body ?? {};
+      if (password !== ADMIN_PASSWORD) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+
+      const result: Record<string, any> = {};
+
+      // 1. List actual columns in answer_details (proves schema state)
+      const cols = await db.execute(sql`
+        SELECT column_name, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE table_name = 'answer_details'
+        ORDER BY ordinal_position
+      `);
+      result.answer_details_columns = cols.rows;
+
+      // 2. If submissionId given: raw count + raw rows from answer_details
+      if (submissionId) {
+        const sid = parseInt(submissionId);
+        const rawCount = await db.execute(sql`
+          SELECT COUNT(*) AS cnt FROM answer_details WHERE submission_id = ${sid}
+        `);
+        result.answer_details_count_for_submission = rawCount.rows[0];
+
+        const rawRows = await db.execute(sql`
+          SELECT * FROM answer_details WHERE submission_id = ${sid} LIMIT 10
+        `);
+        result.answer_details_rows = rawRows.rows;
+
+        // Also fetch the submission row itself
+        const subRow = await db.execute(sql`
+          SELECT * FROM student_submissions WHERE id = ${sid}
+        `);
+        result.submission_row = subRow.rows[0] ?? null;
+      }
+
+      // 3. If examId given: check questions.id range (detects re-import)
+      if (examId) {
+        const eid = parseInt(examId);
+        const qRange = await db.execute(sql`
+          SELECT MIN(id) AS min_id, MAX(id) AS max_id, COUNT(*) AS question_count
+          FROM questions WHERE exam_id = ${eid}
+        `);
+        result.questions_range = qRange.rows[0];
+
+        // Check if any answer_details reference questions NOT in current questions table
+        const orphanDetails = await db.execute(sql`
+          SELECT COUNT(*) AS cnt
+          FROM answer_details ad
+          LEFT JOIN questions q ON q.id = ad.question_id
+          WHERE q.id IS NULL
+        `);
+        result.answer_details_with_deleted_questions = orphanDetails.rows[0];
+
+        // Count of ALL answer_details for this exam's submissions
+        const totalDetails = await db.execute(sql`
+          SELECT COUNT(ad.id) AS total_answer_details
+          FROM student_submissions s
+          LEFT JOIN answer_details ad ON ad.submission_id = s.id
+          WHERE s.exam_id = ${eid}
+        `);
+        result.total_answer_details_for_exam = totalDetails.rows[0];
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("DB diagnostic error:", error);
+      res.status(500).json({ message: "Diagnostic failed", error: String(error) });
+    }
+  });
+
   // Delete exam
   app.delete("/api/exams/:id", async (req, res) => {
     try {
