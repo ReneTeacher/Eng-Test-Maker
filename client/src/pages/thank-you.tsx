@@ -404,29 +404,19 @@ export default function ThankYou() {
                               </div>
 
                               <div className="space-y-2 text-sm">
-                                {qr.correctDefinition && qr.studentDefinition && !isFullScore ? (
-                                  renderWordDiff(qr.correctDefinition, qr.studentDefinition)
-                                ) : (
-                                  <>
-                                    {qr.correctDefinition && (
-                                      <div>
-                                        <span className="text-muted-foreground text-xs">正確定義：</span>
-                                        <span className="text-green-700 dark:text-green-400 text-sm font-medium block">{qr.correctDefinition}</span>
-                                      </div>
-                                    )}
-                                    {qr.studentDefinition ? (
-                                      <div>
-                                        <span className="text-muted-foreground text-xs">你寫：</span>
-                                        <span className="text-foreground text-sm block">{qr.studentDefinition}</span>
-                                      </div>
-                                    ) : (
-                                      <div>
-                                        <span className="text-muted-foreground text-xs">你寫：</span>
-                                        <span className="text-red-600 dark:text-red-400 text-sm">(未填)</span>
-                                      </div>
-                                    )}
-                                  </>
-                                )}
+                                <>
+                                  {qr.studentDefinition ? (
+                                    <div>
+                                      <span className="text-muted-foreground text-xs">你寫：</span>
+                                      <span className="text-foreground text-sm block">{qr.studentDefinition}</span>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <span className="text-muted-foreground text-xs">你寫：</span>
+                                      <span className="text-red-600 dark:text-red-400 text-sm">(未填)</span>
+                                    </div>
+                                  )}
+                                </>
 
                                 {qr.definitionFeedback && !isFullScore && (
                                   <div className="mt-1.5 pt-2 border-t border-muted">
