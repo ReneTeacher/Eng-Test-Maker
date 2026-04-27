@@ -10,9 +10,14 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # 以下 secrets 由 Render/Zeabur dashboard 注入，切勿將值 commit 入 repo
       - key: DATABASE_URL
-        value: postgresql://postgres:zrqk8CLbv9zVs83t@db.xhfgkbedefeqhevjksud.supabase.co:5432/postgres
+        sync: false
       - key: MINIMAX_API_KEY
-        value: api-28QryqDJ_auda3XLJ2_iQcZ9MuucnBWpN2ZWGJ_kYtv_Plg4C6Pkzj9I_vw7x_s40tUPYIbpEvpDoakkqCm03SgfYFJZslFVwlD35JD2l_06lIXv1FS2Vfs
+        sync: false
       - key: ADMIN_PASSWORD
-        value: YOUR_PASSWORD_HERE
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: POE_API_KEY
+        sync: false

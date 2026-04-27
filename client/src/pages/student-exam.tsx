@@ -60,7 +60,6 @@ export default function StudentExam() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [submitCountdown, setSubmitCountdown] = useState(5);
-  const [confirmEmail, setConfirmEmail] = useState("");
 
   useEffect(() => {
     const stored = sessionStorage.getItem("studentInfo");
@@ -88,14 +87,11 @@ export default function StudentExam() {
     mutationFn: async (data: {
       examId: number;
       answers: { questionId: number; studentWord: string; studentPos: string; studentMeaning: string; studentDefinition?: string }[];
-      emailOverride?: string;
       warningCount?: number;
       violations?: { type: string; timestamp: string }[];
     }) => {
-      const email = data.emailOverride ?? studentInfo?.studentEmail;
       const response = await apiRequest("POST", "/api/submissions", {
         ...studentInfo,
-        studentEmail: email,
         examId: data.examId,
         answers: data.answers,
         warningCount: data.warningCount ?? 0,
@@ -103,9 +99,7 @@ export default function StudentExam() {
       });
       return response.json();
     },
-    onSuccess: (data, variables) => {
-      const email = variables.emailOverride ?? studentInfo?.studentEmail;
-      if (email) sessionStorage.setItem("studentEmail", email);
+    onSuccess: (data) => {
       sessionStorage.setItem("submissionResult", JSON.stringify(data));
       sessionStorage.removeItem("studentInfo");
       navigate("/thank-you");
@@ -124,14 +118,11 @@ export default function StudentExam() {
       examId: number;
       studentText?: string;
       sentenceAnswers?: { sentenceId: number; studentSentence: string }[];
-      emailOverride?: string;
       warningCount?: number;
       violations?: { type: string; timestamp: string }[];
     }) => {
-      const email = data.emailOverride ?? studentInfo?.studentEmail;
       const response = await apiRequest("POST", "/api/text-submissions", {
         ...studentInfo,
-        studentEmail: email,
         examId: data.examId,
         studentText: data.studentText || "",
         sentenceAnswers: data.sentenceAnswers,
@@ -140,9 +131,7 @@ export default function StudentExam() {
       });
       return response.json();
     },
-    onSuccess: (data, variables) => {
-      const email = variables.emailOverride ?? studentInfo?.studentEmail;
-      if (email) sessionStorage.setItem("studentEmail", email);
+    onSuccess: (data) => {
       sessionStorage.setItem("submissionResult", JSON.stringify({
         ...data,
         isTextDictation: true,
@@ -182,7 +171,6 @@ export default function StudentExam() {
       setSubmitCountdown(5);
       return;
     }
-    setConfirmEmail(studentInfo?.studentEmail || "");
     if (submitCountdown <= 0) return;
     const timer = setTimeout(() => setSubmitCountdown(prev => prev - 1), 1000);
     return () => clearTimeout(timer);
@@ -325,9 +313,8 @@ export default function StudentExam() {
     setShowConfirmDialog(true);
   };
 
-  const handleConfirmedSubmit = (forceAutoSubmit = false) => {
+  const handleConfirmedSubmit = () => {
     if (!activeExam) return;
-    const finalEmail = forceAutoSubmit ? (studentInfo?.studentEmail || undefined) : (confirmEmail.trim() || undefined);
     setShowConfirmDialog(false);
 
     const cheatingData = { warningCount, violations };
@@ -342,14 +329,12 @@ export default function StudentExam() {
         submitTextMutation.mutate({
           examId: activeExam.id,
           sentenceAnswers: sentenceSubmissions,
-          emailOverride: finalEmail,
           ...cheatingData,
         });
       } else {
         submitTextMutation.mutate({
           examId: activeExam.id,
           studentText: textAnswer.trim(),
-          emailOverride: finalEmail,
           ...cheatingData,
         });
       }
@@ -366,13 +351,12 @@ export default function StudentExam() {
       submitMutation.mutate({
         examId: activeExam.id,
         answers: submissionAnswers,
-        emailOverride: finalEmail,
         ...cheatingData,
       });
     }
   };
 
-  autoSubmitRef.current = () => handleConfirmedSubmit(true);
+  autoSubmitRef.current = () => handleConfirmedSubmit();
 
   if (!studentInfo) {
     return null;
@@ -650,15 +634,6 @@ export default function StudentExam() {
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-base">
                 <p>交卷後不能修改，會直接看到分數。請確認所有答案已檢查完畢。</p>
-                <div className="space-y-1">
-                  <label className="text-sm text-muted-foreground block">成績報告電郵（可修改，留空則不發送）：</label>
-                  <Input
-                    value={confirmEmail}
-                    onChange={(e) => setConfirmEmail(e.target.value)}
-                    placeholder="example@fct.edu.mo"
-                    className="h-9 text-sm"
-                  />
-                </div>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>

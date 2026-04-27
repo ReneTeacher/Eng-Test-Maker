@@ -25,7 +25,6 @@ export function useAntiCheating({ enabled, maxWarnings = 3, onAutoSubmit }: Anti
   const [violations, setViolations] = useState<Violation[]>([]);
   const [showWarningDialog, setShowWarningDialog] = useState(false);
   const pausedUntil = useRef(0);
-  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSubmitTriggered = useRef(false);
   const onAutoSubmitRef = useRef(onAutoSubmit);
   onAutoSubmitRef.current = onAutoSubmit;
@@ -62,20 +61,6 @@ export function useAntiCheating({ enabled, maxWarnings = 3, onAutoSubmit }: Anti
       if (document.hidden) addViolation("visibility");
     };
 
-    const handleBlur = () => {
-      blurTimer.current = setTimeout(() => {
-        if (document.hidden) return;
-        addViolation("blur");
-      }, 2000);
-    };
-
-    const handleFocus = () => {
-      if (blurTimer.current) {
-        clearTimeout(blurTimer.current);
-        blurTimer.current = null;
-      }
-    };
-
     const blockBack = (e: PopStateEvent) => {
       e.preventDefault();
       window.history.pushState(null, "", window.location.href);
@@ -104,8 +89,6 @@ export function useAntiCheating({ enabled, maxWarnings = 3, onAutoSubmit }: Anti
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("blur", handleBlur);
-    window.addEventListener("focus", handleFocus);
     window.addEventListener("popstate", blockBack);
     document.addEventListener("keydown", blockKeys);
     window.addEventListener("beforeunload", warnBeforeLeave);
@@ -115,15 +98,12 @@ export function useAntiCheating({ enabled, maxWarnings = 3, onAutoSubmit }: Anti
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("blur", handleBlur);
-      window.removeEventListener("focus", handleFocus);
       window.removeEventListener("popstate", blockBack);
       document.removeEventListener("keydown", blockKeys);
       window.removeEventListener("beforeunload", warnBeforeLeave);
       document.removeEventListener("contextmenu", blockContextMenu);
       document.removeEventListener("copy", blockCopyCut);
       document.removeEventListener("cut", blockCopyCut);
-      if (blurTimer.current) clearTimeout(blurTimer.current);
     };
   }, [enabled, addViolation]);
 
