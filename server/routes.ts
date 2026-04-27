@@ -1357,9 +1357,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
         definitionFeedback: string | null;
       }[] = [];
 
-      // Process all answers in parallel to avoid request timeout with many AI calls.
-      // gradeSingleAnswer never throws — it always resolves, so a bad single answer
-      // can't fail-fast the whole Promise.all batch.
+      // Submit hot path: skipAi=true so submission never blocks on MiniMax.
+      // AI meaning grading happens later via the rescore endpoint.
       const processedDetails = await Promise.all(answers.map(async (answer) => {
         const question = questions.find(q => q.id === answer.questionId);
         if (!question) return null;
@@ -1374,6 +1373,8 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
             studentDefinition,
           },
           hasDefDictation,
+          undefined,
+          true,
         );
 
         return {
@@ -1791,6 +1792,9 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
     // When rescoring, pass the previously-stored meaningCorrect so that a
     // transient AI failure doesn't downgrade a previously-correct answer to 0.
     previousMeaningCorrect?: boolean,
+    // skipAi=true: never call MiniMax. Used on the submit hot path so submission
+    // never depends on a flaky external service. Rescore path passes false.
+    skipAi: boolean = false,
   ): Promise<{
     wordCorrect: boolean;
     posCorrect: boolean;
@@ -1820,7 +1824,7 @@ Reply ONLY with this JSON: {"isCorrect": true} or {"isCorrect": false}`;
 
       let meaningCorrect = checkMeaningMatch(studentMeaning, question?.correctMeaning || "");
 
-      if (!meaningCorrect && studentMeaning.trim().length > 0) {
+      if (!meaningCorrect && studentMeaning.trim().length > 0 && !skipAi) {
         try {
           const prompt = `You are grading a Chinese vocabulary meaning test for the English word "${question.correctWord}".
 
@@ -2050,56 +2054,12 @@ STRICT RULES:
           scoringResults.push({ sentence, studentSentence, scoreResult });
         }
 
-        const feedbackPromises = scoringResults.map(async ({ sentence, studentSentence, scoreResult }) => {
-          let sentenceFeedback = "";
-          if (scoreResult.details.length === 0) {
-            sentenceFeedback = "完全正確！非常好！";
-          } else {
-            sentenceFeedback = scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
-            try {
-              const prompt = `你是英語聽寫考試的老師。以下是一位學生的聽寫結果，請根據扣分明細，用繁體中文給出簡短、有建設性的學習建議（不要重複扣分明細，只給建議）。控制在40字以內。
-
-正確答案：${sentence.correctSentence}
-學生答案：${studentSentence}
-扣分明細：${scoreResult.details.join("；")}
-
-只回覆建議文字，不要JSON。`;
-
-              const apiKey = process.env.MINIMAX_API_KEY;
-              if (apiKey) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000);
-                
-                try {
-                  const response = await fetch('https://api.minimax.chat/v1/text/chatcompletion_pro', {
-                    method: 'POST',
-                    headers: {
-                      'Authorization': `Bearer ${apiKey}`,
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      model: 'abab6.5s-chat',
-                      messages: [{ role: 'user', content: prompt }],
-                      max_tokens: 200,
-                      temperature: 0.3,
-                    }),
-                    signal: controller.signal,
-                  });
-                  clearTimeout(timeoutId);
-                  
-                  const data = await response.json();
-                  const aiAdvice = (data.choices?.[0]?.message?.content || "").trim();
-                  if (aiAdvice && aiAdvice.length < 100) {
-                    sentenceFeedback += `。建議：${aiAdvice}`;
-                  }
-                } catch (fetchError: any) {
-                  console.error("AI feedback fetch error:", fetchError?.message || fetchError);
-                }
-              }
-            } catch (aiErr: any) {
-              console.error("AI feedback error:", aiErr?.message || aiErr);
-            }
-          }
+        // Submit hot path: skip AI feedback to keep submission fast and reliable.
+        // Teachers can trigger AI advice later via rescore.
+        const resolvedResults = scoringResults.map(({ sentence, scoreResult }) => {
+          const sentenceFeedback = scoreResult.details.length === 0
+            ? "完全正確！非常好！"
+            : scoreResult.details.join("；") + `（共扣${scoreResult.deductions}分）`;
           return {
             sentenceId: sentence.id,
             earned: scoreResult.earned,
@@ -2107,8 +2067,6 @@ STRICT RULES:
             feedback: sentenceFeedback,
           };
         });
-
-        const resolvedResults = await Promise.all(feedbackPromises);
         for (const r of resolvedResults) {
           sentenceResults.push(r);
         }
