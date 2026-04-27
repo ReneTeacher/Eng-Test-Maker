@@ -108,11 +108,19 @@ export default function AdminSubmissions() {
     enabled: !!examId && showAnalytics,
   });
 
-  const submissions = useMemo(() => {
-    const all = isTextType
+  const allSubmissions = useMemo(() => (
+    isTextType
       ? textSubmissions?.filter(s => s.examId === Number(examId)) || []
-      : vocabSubmissions?.filter(s => s.examId === Number(examId)) || [];
-    
+      : vocabSubmissions?.filter(s => s.examId === Number(examId)) || []
+  ), [isTextType, textSubmissions, vocabSubmissions, examId]);
+
+  const uniqueClasses = useMemo(() => {
+    const classes = allSubmissions.map(s => s.originalClass).filter(Boolean);
+    return Array.from(new Set(classes)).sort();
+  }, [allSubmissions]);
+
+  const submissions = useMemo(() => {
+    const all = allSubmissions;
     return all.filter(sub => {
       const matchesSearch = !searchQuery || 
         sub.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -448,17 +456,25 @@ export default function AdminSubmissions() {
                   />
                 </div>
               </div>
-              <Select value={classFilter} onValueChange={setClassFilter}>
-                <SelectTrigger className="w-[150px]" data-testid="select-class-filter">
-                  <SelectValue placeholder="班級" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">所有班級</SelectItem>
-                  <SelectItem value="J3A">J3A</SelectItem>
-                  <SelectItem value="J3B">J3B</SelectItem>
-                  <SelectItem value="J3C">J3C</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-1 flex-wrap">
+                <Button
+                  size="sm"
+                  variant={classFilter === "all" ? "default" : "outline"}
+                  onClick={() => setClassFilter("all")}
+                >
+                  全部
+                </Button>
+                {uniqueClasses.map(cls => (
+                  <Button
+                    key={cls}
+                    size="sm"
+                    variant={classFilter === cls ? "default" : "outline"}
+                    onClick={() => setClassFilter(cls)}
+                  >
+                    {cls}
+                  </Button>
+                ))}
+              </div>
               <Select value={scoreFilter} onValueChange={setScoreFilter}>
                 <SelectTrigger className="w-[150px]" data-testid="select-score-filter">
                   <SelectValue placeholder="分數" />
